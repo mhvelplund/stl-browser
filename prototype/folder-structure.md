@@ -66,6 +66,23 @@ into **variant → part group → file**. Numbers below are from the current ind
 5. **Posters.** Use a group's poster as its folder thumbnail. Models without their own image already have the nearest
    group poster in `hero_fallback_asset_id`.
 
+## Implementation: `stlindex/vtree.py`
+
+`vtree.build(conn, files=True)` returns a `Node` tree (`name`, `kind`, `children`, `ref`), and
+`python -m stlindex vtree [<path>] [--depth N] [--files] [--json]` prints it. The whole tree, files included, builds
+in about 0.4 s.
+
+- **Kinds:** `volume`, `collection`, `group`, `model`, `images`, `docs`, `variant`, `part`, `file`, `image`.
+- **`ref`** holds the ids the browser needs: `group_id` / `poster_asset_id` on groups; `model_id`, `hero_asset_id`
+  (hero, falling back to the group poster), `edition` and counts on models; `entry_id` (+ `asset_id`, `role`) on leaves.
+- **Variant level** only appears when a model's printable files have more than one variant. Combined variants become
+  one folder (`Supported · Lychee`), and `''` becomes `Default`.
+- **Docs** come from `model_files` (`doc`/`meta`) and `assets` (`doc`), deduplicated by entry.
+- **Name clashes:** same-named sibling models get their edition, or else their `raw_name`, in brackets. Anything still
+  clashing gets ` (2)`, ` (3)`… This also applies to files (e.g. `Angron.jpg` exists both on disk and in the archive).
+- **Order:** `Images`, `Docs`, then folders, then files, each alphabetical (case-insensitive).
+- `Node.find('Vol/Coll/Group/Model')` resolves a virtual path case-insensitively.
+
 ## Oddities that will show up as strange folders
 
 - **`stl RM019` is a model inside group `RM019`** (`Red Makers/RM019/stl_RM019`). The wrapper folder wasn't collapsed

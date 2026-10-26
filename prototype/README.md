@@ -12,6 +12,8 @@ No other dependencies.
 python -m stlindex index "D:\STL\Warhammer 40K Collection Vol.1" "D:\STL\Warhammer 40K Collection Vol.2"
 python -m stlindex report                                           # per-collection / per-archive summary
 python -m stlindex report --source Ghamak --tree                    # groups/models of matching archives
+python -m stlindex vtree --depth 3                                  # virtual folder tree (see folder-structure.md)
+python -m stlindex vtree "Warhammer 40K Collection Vol.2/04. Primarchs" --files   # expand models into files
 python -m stlindex extract 1234 --out .preview-cache                # pull one file (e.g. a hero image)
 python -m unittest discover -s tests -t .                           # tests
 ```

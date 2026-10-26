@@ -1,4 +1,4 @@
-"""Command line: index | report | extract."""
+"""Command line: index | report | vtree | extract."""
 import argparse
 import json
 import os
@@ -8,6 +8,7 @@ from collections import defaultdict
 
 from . import db as D
 from . import scan as S
+from . import vtree as V
 from .resolve import Entry, resolve
 
 
@@ -137,6 +138,31 @@ def print_tree(conn, coll):
               + extra)
 
 
+def cmd_vtree(args):
+    conn = D.connect(args.db)
+    root = V.build(conn, files=args.files)
+    node = root.find(args.path or '')
+    if node is None:
+        print(f'no such path: {args.path}', file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(node.to_dict(), ensure_ascii=False, indent=1))
+        return 0
+    for depth, n in V.walk(node, max_depth=args.depth):
+        r = n.ref
+        if n.kind == 'model':
+            extra = f'  [{r["file_count"]} files, {r["image_count"]} imgs{"" if r["hero_asset_id"] else ", no image"}]'
+        elif n.kind in ('group', 'collection') and r.get('posters'):
+            extra = f'  [{r["posters"]} posters]'
+        elif n.kind in ('file', 'image'):
+            extra = f'  #{r["entry_id"]}'
+        else:
+            extra = ''
+        leaf = n.kind in ('file', 'image')
+        print('  ' * depth + n.name + ('' if leaf else '/') + extra)
+    return 0
+
+
 def cmd_extract(args):
     conn = D.connect(args.db)
     row = conn.execute('SELECT e.*, s.kind AS skind, s.path AS spath FROM entries e '
@@ -168,6 +194,12 @@ def main(argv=None):
     p.add_argument('--source', help='filter sources by path substring')
     p.add_argument('--tree', action='store_true', help='print groups and models')
     p.set_defaults(func=cmd_report)
+    p = sub.add_parser('vtree', help='print the virtual folder tree (volume/collection/group/model/...)')
+    p.add_argument('path', nargs='?', help="start at this virtual path, e.g. 'Warhammer 40K Collection Vol.2/04. Primarchs'")
+    p.add_argument('--depth', type=int, help='levels to print below the start path')
+    p.add_argument('--files', action='store_true', help='expand models into Images/Docs/variants/parts/files')
+    p.add_argument('--json', action='store_true', help='print the subtree as JSON')
+    p.set_defaults(func=cmd_vtree)
     p = sub.add_parser('extract', help='extract one indexed file (e.g. a preview image)')
     p.add_argument('entry_id', type=int)
     p.add_argument('--out', default='.preview-cache')
