@@ -1,5 +1,6 @@
 mod browse;
 mod commands;
+mod indexer;
 mod state;
 #[cfg(test)]
 mod testutil;
@@ -28,7 +29,13 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::app_info, commands::list_folder])
+        .invoke_handler(tauri::generate_handler![
+            commands::app_info,
+            commands::list_folder,
+            commands::status,
+            commands::rescan,
+            commands::add_folder
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
