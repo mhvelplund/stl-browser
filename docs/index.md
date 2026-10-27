@@ -220,6 +220,21 @@ From the milestone 2 review:
 - **Missing tests:** Cyrillic paths end-to-end, multi-volume and solid RAR, and password-protected RAR (RAR fixtures
   can't be made without WinRAR; password-protected ZIP and 7Z are tested).
 
+From the milestone 3 review:
+
+- **Adding an outer root after an inner one** re-reads every archive, because the cache lookup filters on `root_id`.
+  It is correct, but slow on a big volume, and it has no test.
+- **Adding an outer root changes the resolution unit and the `m:` keys of the inner content.** All of Vol.1 becomes
+  one collection under `STL`. Nothing uses those keys yet, but tags and thumbnail choices will need keys that survive
+  this.
+- **Duplicate roots already in a v3 DB** (`D:\STL` and `d:\stl\`) are never merged. New ones are refused.
+- **A source that keeps failing** makes its collection re-resolve on every run (about 0.1 s per collection).
+- **Missing indexes:** `sources(root_id, collection)` and `assets(group_id)`.
+- **`parse_name` compiles a regex on every call.**
+- **ASCII-only digit checks** (`is_digits`, the designer-tag test). Sources with no collection are skipped.
+- **The resolver merges same-stem archives** (`X.zip` + `x.rar`) into one model, as the prototype did. The
+  `x_1`/`x_2` rule applies only to the Files view.
+
 ## Working notes
 
 - Run all tests with `cargo test --workspace`. Run RAR against a real file with
