@@ -119,6 +119,20 @@ impl Tree {
         Some(node)
     }
 
+    /// Follow `parts` from the root (whole segments, case-insensitive), stopping at a missing
+    /// segment or a leaf. Returns the last folder reached and how many segments it consumed.
+    pub fn walk<S: AsRef<str>>(&self, parts: &[S]) -> (NodeId, usize) {
+        let mut node = 0;
+        for (i, part) in parts.iter().enumerate() {
+            let part = part.as_ref().to_lowercase();
+            match self.nodes[node].children.iter().find(|&&c| self.nodes[c].name == part) {
+                Some(&c) if !is_file_kind(self.nodes[c].kind) => node = c,
+                _ => return (node, i),
+            }
+        }
+        (node, parts.len())
+    }
+
     /// Add `real` to the node's real paths unless it is already there.
     pub fn add_real(&mut self, id: NodeId, real: &str) {
         if !self.nodes[id].real.iter().any(|r| r == real) {
@@ -199,6 +213,46 @@ impl Tree {
         }
         by_name.into_values().filter(|v| v.len() > 1).collect()
     }
+}
+
+/// What a node holds, itself included: models, mesh files (`model`/`scene`) and images.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Counts {
+    pub models: u32,
+    pub files: u32,
+    pub images: u32,
+}
+
+/// Counts for every node. Inner-root volumes share children, so the tree is a DAG: each node
+/// is summed once (post-order, memoized, no recursion).
+pub fn counts(t: &Tree) -> Vec<Counts> {
+    let mut out: Vec<Option<Counts>> = vec![None; t.nodes.len()];
+    let mut stack: Vec<(NodeId, bool)> = vec![(0, false)];
+    while let Some((id, expanded)) = stack.pop() {
+        if out[id].is_some() {
+            continue;
+        }
+        let n = &t.nodes[id];
+        if !expanded {
+            stack.push((id, true));
+            stack.extend(n.children.iter().filter(|&&c| out[c].is_none()).map(|&c| (c, false)));
+            continue;
+        }
+        let file_kind = n.info.file_kind.as_deref();
+        let mut c = Counts {
+            models: (n.kind == NodeKind::Model) as u32,
+            files: (n.kind == NodeKind::File && matches!(file_kind, Some("model" | "scene"))) as u32,
+            images: (n.kind == NodeKind::Image || (n.kind == NodeKind::File && file_kind == Some("image"))) as u32,
+        };
+        for &k in &n.children {
+            let k = out[k].unwrap_or_default();
+            c.models += k.models;
+            c.files += k.files;
+            c.images += k.images;
+        }
+        out[id] = Some(c);
+    }
+    out.into_iter().map(Option::unwrap_or_default).collect()
 }
 
 /// `orc.stl` → `orc_2.stl` for files, `orc` → `orc_2` for folders.
@@ -349,6 +403,46 @@ mod tests {
         ]);
         t.finish(&|_| None);
         assert_eq!(child_names(&t, 0), ["images", "docs", "a", "c", "a.png", "b.stl"]);
+    }
+
+    #[test]
+    fn walk_matches_whole_segments() {
+        let mut t = Tree::new();
+        let v = t.add(0, "Vol", NodeKind::Volume);
+        let odd = t.add(v, "a/b", NodeKind::Folder);
+        t.add(odd, "x.stl", NodeKind::File);
+        assert_eq!(t.walk(&["VOL", "a/b"]), (odd, 2));
+        assert_eq!(t.walk(&["vol", "a", "b"]), (v, 1));
+        assert_eq!(t.walk(&["vol", "a/b", "x.stl"]), (odd, 2)); // a leaf is never the folder
+        assert_eq!(t.walk::<&str>(&[]), (0, 0));
+    }
+
+    #[test]
+    fn counts_sum_below() {
+        let mut t = Tree::new();
+        let c = t.add(0, "c", NodeKind::Collection);
+        let m = t.add(c, "m", NodeKind::Model);
+        let imgs = t.add(m, "images", NodeKind::Images);
+        t.add(imgs, "a.jpg", NodeKind::Image);
+        for (n, k) in [("a.stl", "model"), ("a.lys", "scene"), ("a.mtl", "companion"), ("p.png", "image")] {
+            let id = t.add(m, n, NodeKind::File);
+            t.nodes[id].info.file_kind = Some(k.into());
+        }
+        let cs = counts(&t);
+        assert_eq!(cs[c], Counts { models: 1, files: 2, images: 2 });
+        assert_eq!(cs[imgs], Counts { models: 0, files: 0, images: 1 });
+    }
+
+    #[test]
+    fn counts_with_shared_children() {
+        let mut t = Tree::new();
+        let outer = t.add(0, "outer", NodeKind::Volume);
+        let m = t.add(outer, "m", NodeKind::Model);
+        let inner = t.add(0, "inner", NodeKind::Volume);
+        t.nodes[inner].children = vec![m];
+        let cs = counts(&t);
+        assert_eq!(cs[outer].models, 1);
+        assert_eq!(cs[inner].models, 1);
     }
 
     #[test]
