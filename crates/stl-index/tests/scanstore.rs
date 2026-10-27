@@ -195,6 +195,34 @@ fn errored_source_relisted_after_recovery() {
     assert_eq!(entries_of(&f.conn, "two.zip"), 1);
 }
 
+fn zip_encrypted() -> Vec<u8> {
+    let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let opts = zip::write::SimpleFileOptions::default().with_aes_encryption(zip::AesMode::Aes256, "pw");
+    w.start_file("secret.stl", opts).unwrap();
+    w.write_all(b"secret").unwrap();
+    w.finish().unwrap().into_inner()
+}
+
+#[test]
+fn password_protected_archive_stored_locked() {
+    let mut f = fixture();
+    put(&f.root, "A/locked.zip", &zip_encrypted());
+    put(&f.root, "A/outer.zip", &zip(&[("inner/locked.zip", &zip_encrypted()), ("inner/ok.stl", b"k")]));
+    let s = scan(&mut f).unwrap();
+    assert_eq!((s.locked, s.errors), (1, 0));
+    let (locked, err): (bool, Option<String>) =
+        f.conn.query_row("SELECT locked, error FROM sources WHERE path LIKE '%locked.zip'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert!(locked);
+    assert_eq!(err, None);
+    assert_eq!(entries_of(&f.conn, "locked.zip"), 0);
+    let nested_locked: bool =
+        f.conn.query_row("SELECT locked FROM entries WHERE path = 'inner/locked.zip'", [], |r| r.get(0)).unwrap();
+    assert!(nested_locked);
+    // never retried while unchanged
+    let s = scan(&mut f).unwrap();
+    assert_eq!((s.listed, s.locked), (0, 0));
+}
+
 #[test]
 fn missing_root_is_error_and_keeps_data() {
     let mut f = fixture();

@@ -55,12 +55,13 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     },
                 )?;
                 println!(
-                    "  sources {} · listed {} · reused {} · removed {} · errors {} ({:.1}s)",
+                    "  sources {} · listed {} · reused {} · removed {} · errors {} · locked {} ({:.1}s)",
                     stats.sources,
                     stats.listed,
                     stats.reused,
                     stats.removed,
                     stats.errors,
+                    stats.locked,
                     t.elapsed().as_secs_f64()
                 );
             }

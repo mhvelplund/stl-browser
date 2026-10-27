@@ -17,6 +17,8 @@ pub struct ScannedEntry {
     pub chain: Vec<String>,
     pub size: u64,
     pub crc: String,
+    /// A password-protected nested archive: listed, never opened, shown with a padlock.
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +68,7 @@ fn list_into(
             chain: chain.iter().cloned().chain([m.raw_name.clone()]).collect(),
             size: m.size,
             crc: m.crc.clone(),
+            locked: false,
         });
     }
     if depth >= opts.max_depth {
@@ -80,8 +83,15 @@ fn list_into(
             out.extend(sub_out);
             Ok(())
         });
-        if let Err(e) = r {
-            warnings.push(format!("nested {path}: {e}"));
+        match r {
+            Ok(()) => {}
+            // password-protected archives are not supported: flag it, don't complain
+            Err(ScanError::Encrypted) => {
+                if let Some(e) = out.iter_mut().find(|e| e.path == path) {
+                    e.locked = true;
+                }
+            }
+            Err(e) => warnings.push(format!("nested {path}: {e}")),
         }
     }
     Ok(())

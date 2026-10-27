@@ -42,6 +42,19 @@ fn corrupt_nested_warns() {
 }
 
 #[test]
+fn encrypted_nested_archive_is_locked() {
+    let dir = tempfile::tempdir().unwrap();
+    let inner = common::sevenz_encrypted(false);
+    let p = common::write(dir.path(), "o.zip", &common::zip(&[("Kit/locked.7z", &inner), ("Kit/a.stl", b"x")]));
+    let (entries, warnings) = nested::list_archive(&p, &ListOptions::default()).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let locked = entries.iter().find(|e| e.path == "Kit/locked.7z").unwrap();
+    assert!(locked.locked);
+    assert!(!entries.iter().find(|e| e.path == "Kit/a.stl").unwrap().locked);
+    assert!(!entries.iter().any(|e| e.path.starts_with("Kit/locked.7z/")), "{:?}", paths(&entries));
+}
+
+#[test]
 fn spills_above_mem_limit() {
     let dir = tempfile::tempdir().unwrap();
     let p = common::write(dir.path(), "o.zip", &common::nested_fixture());

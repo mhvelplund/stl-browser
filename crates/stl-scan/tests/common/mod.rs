@@ -27,6 +27,27 @@ pub fn sevenz(files: &[(&str, &[u8])]) -> Vec<u8> {
     w.finish().unwrap().into_inner()
 }
 
+/// A zip whose second member is AES-encrypted.
+pub fn zip_encrypted() -> Vec<u8> {
+    let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    w.start_file("open.stl", zip::write::SimpleFileOptions::default()).unwrap();
+    w.write_all(b"open").unwrap();
+    let locked = zip::write::SimpleFileOptions::default().with_aes_encryption(zip::AesMode::Aes256, "pw");
+    w.start_file("secret.stl", locked).unwrap();
+    w.write_all(b"secret").unwrap();
+    w.finish().unwrap().into_inner()
+}
+
+/// A 7z with AES-encrypted content; `encrypt_header` also hides the file list.
+pub fn sevenz_encrypted(encrypt_header: bool) -> Vec<u8> {
+    use sevenz_rust2::encoder_options::{AesEncoderOptions, Lzma2Options};
+    let mut w = sevenz_rust2::ArchiveWriter::new(Cursor::new(Vec::new())).unwrap();
+    w.set_encrypt_header(encrypt_header);
+    w.set_content_methods(vec![AesEncoderOptions::new(sevenz_rust2::Password::new("pw")).into(), Lzma2Options::default().into()]);
+    w.push_archive_entry(sevenz_rust2::ArchiveEntry::new_file("secret.stl"), Some(&b"secret"[..])).unwrap();
+    w.finish().unwrap().into_inner()
+}
+
 pub fn write(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
     let p = dir.join(name);
     if let Some(parent) = p.parent() {
