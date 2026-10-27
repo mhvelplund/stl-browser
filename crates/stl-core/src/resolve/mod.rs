@@ -4,6 +4,7 @@
 //! Pipeline: physical tree → variant marking (incl. sibling rule) → logical tree (variant folders
 //! made transparent, image-only folders hoisted) → model detection (wrappers collapsed, part kits
 //! recognised) → asset attachment → unit collapse (P18, a second pass).
+mod assets;
 mod detect;
 mod tree;
 
@@ -152,14 +153,22 @@ pub fn resolve(source_name: &str, entries: &[Entry]) -> Resolution {
     let mut l = LTree::new(source_name);
     tree::build_logical(&p, 0, &mut l, 0, &BTreeSet::new(), &[source_name.to_string()]);
     tree::mark_logical_structural(&mut l, 0);
-    resolve_once(source_name, &l, entries, &HashSet::new())
+    let (res, units) = resolve_once(source_name, &l, entries, &HashSet::new());
+    if units.is_empty() {
+        return res;
+    }
+    resolve_once(source_name, &l, entries, &units.into_iter().collect()).0
 }
 
-fn resolve_once(source_name: &str, l: &LTree, entries: &[Entry], force: &HashSet<usize>) -> Resolution {
+/// One pass, plus the unit groups (P18) to force into single models on a second pass.
+fn resolve_once(source_name: &str, l: &LTree, entries: &[Entry], force: &HashSet<usize>) -> (Resolution, Vec<usize>) {
     let mut pass = Pass::new(l, entries, source_name, force);
     if l.nodes[0].structural {
         pass.walk(0, None, None);
     }
     detect::finalize_names(&mut pass.groups, &mut pass.models, source_name);
-    Resolution { source_name: source_name.to_string(), groups: pass.groups, models: pass.models, assets: Vec::new() }
+    let assets = assets::attach_assets(&mut pass);
+    let units = assets::unit_groups(&pass, &assets);
+    let res = Resolution { source_name: source_name.to_string(), groups: pass.groups, models: pass.models, assets };
+    (res, units)
 }
