@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OptionalExtension, params};
 use stl_scan::discover::{SourceInfo, discover};
 use stl_scan::extract::SourceKind;
+use stl_scan::ScanError;
 use stl_scan::nested::{ListOptions, ScannedEntry, list_archive};
 use thiserror::Error;
 
@@ -28,6 +29,8 @@ pub struct ScanStats {
     pub reused: usize,
     pub removed: usize,
     pub errors: usize,
+    /// Password-protected sources found this run (stored with no entries, never opened).
+    pub locked: usize,
 }
 
 #[derive(Debug)]
@@ -62,7 +65,14 @@ pub fn add_root(conn: &Connection, path: &Path) -> Result<i64, IndexError> {
     Ok(conn.query_row("SELECT id FROM roots WHERE path = ?", [key], |r| r.get(0))?)
 }
 
-type Lister = dyn Fn(&SourceInfo, &ListOptions) -> Result<(Vec<ScannedEntry>, Vec<String>), String>;
+/// What listing a source produced.
+enum Listing {
+    Entries(Vec<ScannedEntry>, Vec<String>),
+    /// Password-protected: not supported, so it is stored with no entries and never opened.
+    Locked,
+}
+
+type Lister = dyn Fn(&SourceInfo, &ListOptions) -> Result<Listing, String>;
 
 /// Scan one root. A missing root folder is an error and leaves its data untouched.
 pub fn scan_root(
@@ -116,21 +126,25 @@ fn scan_root_with(
             stats.reused += 1;
             continue;
         }
-        let (entries, error) = match list_guarded(lister, src, opts) {
-            Ok((entries, warnings)) => {
+        let (entries, error, locked) = match list_guarded(lister, src, opts) {
+            Ok(Listing::Entries(entries, warnings)) => {
                 for w in &warnings {
                     progress(Progress::Warning(w));
                 }
-                (entries, None)
+                (entries, None, false)
+            }
+            Ok(Listing::Locked) => {
+                stats.locked += 1;
+                (Vec::new(), None, true)
             }
             Err(e) => {
                 let msg = e.to_string();
                 progress(Progress::Warning(&format!("{}: {msg}", src.rel_path)));
                 stats.errors += 1;
-                (Vec::new(), Some(msg))
+                (Vec::new(), Some(msg), false)
             }
         };
-        store_listing(conn, root_id, src, &entries, error.as_deref())?;
+        store_listing(conn, root_id, src, &entries, error.as_deref(), locked)?;
         stats.listed += 1;
     }
     let stale: Vec<(i64, String)> = {
@@ -153,7 +167,7 @@ fn list_guarded(
     lister: &Lister,
     src: &SourceInfo,
     opts: &ListOptions,
-) -> Result<(Vec<ScannedEntry>, Vec<String>), String> {
+) -> Result<Listing, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lister(src, opts))).unwrap_or_else(|payload| {
         let msg = payload
             .downcast_ref::<&str>()
@@ -167,9 +181,13 @@ fn list_guarded(
 fn list_source(
     src: &SourceInfo,
     opts: &ListOptions,
-) -> Result<(Vec<ScannedEntry>, Vec<String>), String> {
+) -> Result<Listing, String> {
     match src.kind {
-        SourceKind::Archive => list_archive(&src.path, opts).map_err(|e| e.to_string()),
+        SourceKind::Archive => match list_archive(&src.path, opts) {
+            Ok((entries, warnings)) => Ok(Listing::Entries(entries, warnings)),
+            Err(ScanError::Encrypted) => Ok(Listing::Locked),
+            Err(e) => Err(e.to_string()),
+        },
         SourceKind::Folder => {
             let mut out = Vec::new();
             for f in &src.loose_files {
@@ -181,9 +199,10 @@ fn list_source(
                     chain: vec![f.clone()],
                     size,
                     crc: String::new(),
+                    locked: false,
                 });
             }
-            Ok((out, Vec::new()))
+            Ok(Listing::Entries(out, Vec::new()))
         }
     }
 }
@@ -194,15 +213,16 @@ fn store_listing(
     src: &SourceInfo,
     entries: &[ScannedEntry],
     error: Option<&str>,
+    locked: bool,
 ) -> Result<(), IndexError> {
     let tx = conn.transaction()?;
     let key = src.path.to_string_lossy();
     tx.execute(
-        "INSERT INTO sources(root_id, kind, path, rel_path, name, collection, coll_path, size, mtime, scanned_at, error, fingerprint)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        "INSERT INTO sources(root_id, kind, path, rel_path, name, collection, coll_path, size, mtime, scanned_at, error, fingerprint, locked)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(path) DO UPDATE SET root_id = ?1, kind = ?2, rel_path = ?4, name = ?5, collection = ?6,
-             coll_path = ?7, size = ?8, mtime = ?9, scanned_at = ?10, error = ?11, fingerprint = ?12",
-        params![root_id, src.kind.as_str(), key, src.rel_path, src.name, src.collection, src.coll_path, src.size, src.mtime, now(), error, src.fingerprint],
+             coll_path = ?7, size = ?8, mtime = ?9, scanned_at = ?10, error = ?11, fingerprint = ?12, locked = ?13",
+        params![root_id, src.kind.as_str(), key, src.rel_path, src.name, src.collection, src.coll_path, src.size, src.mtime, now(), error, src.fingerprint, locked],
     )?;
     let sid: i64 = tx.query_row("SELECT id FROM sources WHERE path = ?", [&key], |r| {
         r.get(0)
@@ -210,11 +230,11 @@ fn store_listing(
     tx.execute("DELETE FROM entries WHERE source_id = ?", [sid])?;
     {
         let mut ins = tx.prepare(
-            "INSERT INTO entries(source_id, path, chain, size, crc) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO entries(source_id, path, chain, size, crc, locked) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
         for e in entries {
             let chain = serde_json::to_string(&e.chain).expect("chain serializes");
-            ins.execute(params![sid, e.path, chain, e.size, e.crc])?;
+            ins.execute(params![sid, e.path, chain, e.size, e.crc, e.locked])?;
         }
     }
     tx.commit()?;
@@ -234,11 +254,11 @@ mod tests {
         std::fs::write(root.join("A/fine.zip"), b"y").unwrap();
         let mut conn = crate::db::open(&tmp.path().join("index.db")).unwrap();
         let id = add_root(&conn, &root).unwrap();
-        let lister = |src: &SourceInfo, _: &ListOptions| -> Result<(Vec<ScannedEntry>, Vec<String>), String> {
+        let lister = |src: &SourceInfo, _: &ListOptions| -> Result<Listing, String> {
             if src.name == "boom" {
                 panic!("parser exploded");
             }
-            Ok((vec![ScannedEntry { path: "a.stl".into(), chain: vec!["a.stl".into()], size: 1, crc: String::new() }], Vec::new()))
+            Ok(Listing::Entries(vec![ScannedEntry { path: "a.stl".into(), chain: vec!["a.stl".into()], size: 1, crc: String::new(), locked: false }], Vec::new()))
         };
         let s = scan_root_with(&mut conn, id, &ListOptions::default(), &mut |_| {}, &lister).unwrap();
         assert_eq!((s.listed, s.errors), (2, 1));

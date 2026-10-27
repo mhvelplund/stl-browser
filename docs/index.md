@@ -46,7 +46,7 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
 
 ### Data on disk: `~/.stl-browser/`
 
-- `index.db` (SQLite, WAL), at schema version 2:
+- `index.db` (SQLite, WAL), at schema version 3:
   - **Cached listings:** `roots` (the added folders), `sources` (each archive, or each folder of loose files),
     `entries` (every file found, with `chain`, the archive members to open in order to reach it).
   - **User data, never rebuilt:** `settings`, `selected_thumb`, `tags`, `node_tags`. These are keyed by stable path
@@ -70,6 +70,9 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
   - Otherwise the source is re-listed. Vanished sources are deleted.
   - A source that failed last time is always retried.
   - A missing root folder is reported and its data is left alone.
+- **Password-protected archives** are detected from their headers, with nothing decrypted. Such an archive is stored
+  with `locked = 1` and no entries, never opened, and not retried until it changes. A nested one is listed as an entry
+  with `locked = 1`, and it isn't opened either. The UI will show both with a box-with-padlock icon.
 - **Robustness:** a corrupt archive records an error on its source and the scan continues. A crash (panic) inside an
   archive library is caught and recorded the same way. No format can ever stop to ask for a password.
 
@@ -90,7 +93,7 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
 - **Thumbnails are generated when a folder is first opened**, cached as `<hash of path>/<hash of file>`, and
   regenerated if missing. STL files get rendered thumbnails.
 - **Tags, search and filtering come later.** User data lives in the SQLite DB in `~/.stl-browser/`.
-- **Password-protected archives are not supported** *(added after milestone 2)*:
+- **Password-protected archives are not supported** *(added after milestone 2; the scanner side is done)*:
   - Don't try to scan them.
   - Show them as a single item with a **box-with-padlock** icon.
 - **All file and folder names are lowercase in the virtual file system** *(added after milestone 2)*:
@@ -111,6 +114,7 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
 - **The SvelteKit template** (the official Tauri Svelte template), so the UI lives in `app/src/routes/`.
 - **The Tauri dialog plugin**, for the startup error dialog and later the folder picker.
 - **A file-name fingerprint for folder sources** (schema v2), so a renamed loose file is noticed on rescan.
+- **`locked` flags on sources and entries** (schema v3) mark password-protected archives.
 - **Panics are caught.** The release build uses `panic = "unwind"`, so a crash inside an archive library becomes an
   error on that archive instead of closing the app.
 
@@ -155,8 +159,8 @@ From the milestone 2 review:
   - A file deleted between discovery and listing fails its folder source.
   - Paths that aren't valid Unicode are stored lossily.
   - A DB from a newer app version opens without a warning.
-- **Missing tests:** Cyrillic paths end-to-end, and multi-volume and solid RAR (RAR fixtures can't be made without
-  WinRAR).
+- **Missing tests:** Cyrillic paths end-to-end, multi-volume and solid RAR, and password-protected RAR (RAR fixtures
+  can't be made without WinRAR; password-protected ZIP and 7Z are tested).
 - **Overlapping roots and drive-root volume names** (`D:\`). These are now covered by the new merge rule and get
   fixed with it.
 

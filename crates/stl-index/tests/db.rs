@@ -17,8 +17,8 @@ fn open_creates_schema() {
     let v: i32 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(v, 2);
-    assert_eq!(db::SCHEMA_VERSION, 2);
+    assert_eq!(v, 3);
+    assert_eq!(db::SCHEMA_VERSION, 3);
     let t = tables(&conn);
     for name in [
         "roots",

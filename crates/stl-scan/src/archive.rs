@@ -144,6 +144,10 @@ impl Archive for ZipReader {
             if f.is_dir() {
                 continue;
             }
+            // password-protected archives are not supported: one locked member locks the archive
+            if f.encrypted() {
+                return Err(ScanError::Encrypted);
+            }
             let raw = f.name().map_err(zip_err)?.into_owned();
             out.push(Member { path: normalize_path(&raw), raw_name: raw, size: f.size(), crc: crc_hex(f.crc32()) });
         }
@@ -190,8 +194,14 @@ fn sevenz_err(e: sevenz_rust2::Error) -> ScanError {
 
 impl SevenZReader {
     fn new(input: &ArchiveInput) -> Result<Self, ScanError> {
+        // An encrypted header fails here with PasswordRequired; encrypted content shows up as an
+        // AES coder in a block. Either way nothing is decrypted.
         let reader = sevenz_rust2::ArchiveReader::new(input.reader()?, sevenz_rust2::Password::empty())
             .map_err(sevenz_err)?;
+        let aes = sevenz_rust2::EncoderMethod::ID_AES256_SHA256;
+        if reader.archive().blocks.iter().any(|b| b.coders.iter().any(|c| c.encoder_method_id() == aes)) {
+            return Err(ScanError::Encrypted);
+        }
         Ok(Self { reader })
     }
 }
@@ -336,6 +346,9 @@ impl Archive for RarReader {
             let entry = entry.map_err(rar_err)?;
             if !entry.is_file() {
                 continue;
+            }
+            if entry.is_encrypted() {
+                return Err(ScanError::Encrypted);
             }
             let raw = entry.filename.to_string_lossy().into_owned();
             out.push(Member { path: normalize_path(&raw), raw_name: raw, size: entry.unpacked_size, crc: crc_hex(entry.file_crc) });

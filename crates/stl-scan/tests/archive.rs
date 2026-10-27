@@ -116,6 +116,19 @@ fn sevenz_extract_streams() {
 }
 
 #[test]
+fn password_protected_archives_are_encrypted() {
+    let cases = [
+        ("zip member", common::zip_encrypted(), "k.zip"),
+        ("7z content", common::sevenz_encrypted(false), "k.7z"),
+        ("7z header", common::sevenz_encrypted(true), "k.7z"),
+    ];
+    for (what, bytes, name) in cases {
+        let r = archive::open(ArchiveInput::Bytes(Arc::new(bytes), name.into())).and_then(|mut a| a.list());
+        assert!(matches!(r, Err(ScanError::Encrypted)), "{what}: {r:?}");
+    }
+}
+
+#[test]
 fn corrupt_archive_is_format_error() {
     let junk: Vec<u8> = (0..4096u32).map(|i| (i * 7919 % 251) as u8).collect();
     for name in ["x.zip", "x.7z"] {
