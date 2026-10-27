@@ -1,5 +1,8 @@
+mod browse;
 mod commands;
 mod state;
+#[cfg(test)]
+mod testutil;
 
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -25,7 +28,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::app_info])
+        .invoke_handler(tauri::generate_handler![commands::app_info, commands::list_folder])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
