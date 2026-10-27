@@ -24,3 +24,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 
+stl-index = { path = "../../crates/stl-index" }
+rusqlite = "0.37"
+tauri-plugin-dialog = "2"
+
+[dev-dependencies]
+tempfile = "3"
