@@ -29,6 +29,7 @@ cargo run --release -p stl-index --bin stlx -- tree models|files [<path>] [--dep
 cargo run --release -p stl-index --bin stlx -- parity <prototype.db>   # compare resolved tables with the prototype
 npm --prefix app run tauri dev                           # launch the app
 npm --prefix app run check                               # svelte-check (UI type check)
+npm --prefix app test                                    # UI logic tests (node --test on src/lib/*.test.ts)
 ```
 
 Set `STL_BROWSER_HOME=<scratch dir>` for `stlx` and test runs so they don't touch the real `~/.stl-browser/`.
@@ -49,8 +50,10 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
   vanished sources deleted; a root inside another root is skipped); `resolvestore.rs` holds `index_all` (scan, then
   re-resolve changed collections per (root, collection)); `views.rs` loads rows and builds both views (inner roots
   become alias volumes); `parity.rs` backs `stlx parity`. `bin/stlx.rs` is the dev CLI.
-- `app/src-tauri`: Tauri shell (`lib.rs` setup, `state.rs`, `commands.rs`). `app/src/routes/+page.svelte`: SvelteKit UI
-  with the static adapter.
+- `app/src-tauri`: Tauri shell (`lib.rs` setup, `state.rs` with the cached view trees and the index busy flag,
+  `commands.rs`, `browse.rs` for `list_folder`, `indexer.rs` for background index runs and their events).
+  `app/src/routes/+page.svelte` plus `app/src/lib/` (components, and pure `grid`/`nav`/`items` modules with tests):
+  SvelteKit UI with the static adapter.
 - The Python prototype (the resolver's porting reference) was deleted after parity held in milestone 3. It is still in
   git history, and its tests live on as `crates/stl-core/tests/{names,resolve,vtree_models}.rs`.
 
