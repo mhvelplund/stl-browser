@@ -7,10 +7,12 @@ anything out to Explorer to extract it.
 
 - Full design: [`superpowers/specs/2026-10-27-stl-browser-design.md`](superpowers/specs/2026-10-27-stl-browser-design.md)
 - Current implementation plan: [`superpowers/plans/2026-10-27-skeleton-and-scan.md`](superpowers/plans/2026-10-27-skeleton-and-scan.md)
+- Layout patterns, the model resolver, and the parity baseline: [`archive-patterns.md`](archive-patterns.md)
+- The virtual folder tree, the two views, and the naming rules: [`virtual-tree.md`](virtual-tree.md)
 - UI mockup (clickable): https://claude.ai/artifact/Vum7b4yY5TjCBW1Csez2BH
-- `prototype/` holds the Python prototype and its notes (`archive-patterns-plan.md`, `folder-structure.md`,
-  `HANDOFF.md`). It is the reference for the heuristics. It is **not** part of the app, and nothing in it is built or
-  shipped.
+- `prototype/` holds the Python prototype. Its code and tests are the reference for porting the resolver
+  (milestone 3). It is **not** part of the app, and nothing in it is built or shipped. Its notes have been folded into
+  the pages above.
 
 ## Status
 
@@ -112,7 +114,7 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
 - **Panics are caught.** The release build uses `panic = "unwind"`, so a crash inside an archive library becomes an
   error on that archive instead of closing the app.
 
-### How I'm reading your new rules (my interpretation; confirm or correct)
+### Details of the new rules (confirmed)
 
 - **Password-protected archives:**
   - An archive counts as password-protected if any of its members is encrypted, or its headers are. It is then stored
@@ -167,3 +169,5 @@ From the milestone 2 review:
 - `unrar_sys` doesn't link `advapi32`, so `stl-scan` links it explicitly.
 - unrar can't write to a temp file that is still open. Close the handle first (`NamedTempFile::into_temp_path`).
 - Shell heredocs in this environment mangle backslashes. Write source files with an editor.
+- `D:\STL\Warhammer 40K Collection Vol.1\.3d-model-library\` (`*_DO_NOT_DELETE.json`) belongs to another tool.
+  Discovery skips dot-folders, so leave it alone.

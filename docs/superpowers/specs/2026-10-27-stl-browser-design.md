@@ -24,7 +24,7 @@ commits it. Then `superpowers:writing-plans` turns each milestone below into a t
 - Drag-out uses **Windows virtual-file drag** (delayed rendering): files are extracted only when Explorer asks for
   them.
 - Index, thumbnails and user config (selected thumbnails; later tags) live in `~/.stl-browser/`.
-- *(Added after milestone 2; my reading of these rules is in `docs/index.md`.)*
+- *(Added after milestone 2; details in `docs/index.md` and `docs/virtual-tree.md`.)*
   - **Password-protected archives are not supported.** Don't scan them; show them as one item with a box-with-padlock
     icon.
   - **All file and folder names in the virtual file system are lowercase.** Overlapping folders merge their contents.
