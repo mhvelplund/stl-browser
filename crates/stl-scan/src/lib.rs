@@ -1,5 +1,6 @@
 //! Native archive reading (ZIP, 7Z, RAR), nested listing, extraction and source discovery.
 pub mod archive;
+pub mod extract;
 pub mod nested;
 mod error;
 
