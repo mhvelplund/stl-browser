@@ -39,4 +39,5 @@ test("folder summary", () => {
   const l: Listing = { view: "models", path: [], name: "", real: [], models: 2, files: 5, images: 1, items: [base, base] };
   assert.equal(folderSummary(l, "models"), "2 models · 1 image · 5 files");
   assert.equal(folderSummary({ ...l, view: "files" }, "files"), "2 items · 5 files");
+  assert.equal(folderSummary({ ...l, models: 0 }, "models"), "1 image · 5 files");
 });
