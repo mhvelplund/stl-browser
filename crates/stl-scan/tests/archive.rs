@@ -87,6 +87,34 @@ fn extract_many_single_pass() {
     assert_eq!(got, vec![("a.stl".to_string(), b"A".to_vec()), ("c.stl".to_string(), b"CCC".to_vec())]);
 }
 
+/// Records the largest single write, to show extraction streams instead of buffering a member.
+struct MaxChunk {
+    total: usize,
+    max: usize,
+}
+
+impl std::io::Write for MaxChunk {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.total += buf.len();
+        self.max = self.max.max(buf.len());
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn sevenz_extract_streams() {
+    let big: Vec<u8> = (0..4 * 1024 * 1024u32).map(|i| (i % 251) as u8).collect();
+    let bytes = common::sevenz(&[("first.stl", &big), ("second.stl", &big)]);
+    let mut a = archive::open(ArchiveInput::Bytes(Arc::new(bytes), "k.7z".into())).unwrap();
+    let mut w = MaxChunk { total: 0, max: 0 };
+    a.extract("second.stl", &mut w).unwrap();
+    assert_eq!(w.total, big.len());
+    assert!(w.max <= 1024 * 1024, "member written in one {} byte chunk", w.max);
+}
+
 #[test]
 fn corrupt_archive_is_format_error() {
     let junk: Vec<u8> = (0..4096u32).map(|i| (i * 7919 % 251) as u8).collect();
