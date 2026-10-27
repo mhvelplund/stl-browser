@@ -74,7 +74,8 @@ pub fn scan_root(
         let key = src.path.to_string_lossy().into_owned();
         seen.insert(key.clone());
         let cached: Option<(u64, f64)> = conn
-            .query_row("SELECT size, mtime FROM sources WHERE path = ? AND root_id = ?", params![key, root_id], |r| {
+            // a source that failed last time is always retried: the failure may have been transient
+            .query_row("SELECT size, mtime FROM sources WHERE path = ? AND root_id = ? AND error IS NULL", params![key, root_id], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .optional()?;

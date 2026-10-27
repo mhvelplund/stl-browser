@@ -127,6 +127,24 @@ fn corrupt_archive_recorded() {
 }
 
 #[test]
+fn errored_source_relisted_after_recovery() {
+    let mut f = fixture();
+    let p = f.root.join("A/two.zip");
+    let good = std::fs::read(&p).unwrap();
+    let mtime = filetime::FileTime::from_last_modification_time(&std::fs::metadata(&p).unwrap());
+    // a transient failure: same size and mtime, unreadable content
+    std::fs::write(&p, vec![0u8; good.len()]).unwrap();
+    filetime::set_file_mtime(&p, mtime).unwrap();
+    let s = scan(&mut f).unwrap();
+    assert_eq!(s.errors, 1);
+    std::fs::write(&p, &good).unwrap();
+    filetime::set_file_mtime(&p, mtime).unwrap();
+    let s = scan(&mut f).unwrap();
+    assert_eq!((s.listed, s.errors), (1, 0));
+    assert_eq!(entries_of(&f.conn, "two.zip"), 1);
+}
+
+#[test]
 fn missing_root_is_error_and_keeps_data() {
     let mut f = fixture();
     scan(&mut f).unwrap();
