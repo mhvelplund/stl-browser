@@ -17,8 +17,8 @@ fn open_creates_schema() {
     let v: i32 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(v, 3);
-    assert_eq!(db::SCHEMA_VERSION, 3);
+    assert_eq!(v, 4);
+    assert_eq!(db::SCHEMA_VERSION, 4);
     let t = tables(&conn);
     for name in [
         "roots",
@@ -28,6 +28,10 @@ fn open_creates_schema() {
         "selected_thumb",
         "tags",
         "node_tags",
+        "groups",
+        "models",
+        "model_files",
+        "assets",
     ] {
         assert!(t.iter().any(|x| x == name), "missing table {name}: {t:?}");
     }

@@ -1,6 +1,6 @@
 //! Add roots and scan them into the DB incrementally: a source whose size and mtime are
 //! unchanged keeps its cached listing, changed ones are re-listed, vanished ones are removed.
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -22,7 +22,7 @@ pub enum IndexError {
     UnknownRoot(i64),
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScanStats {
     pub sources: usize,
     pub listed: usize,
@@ -31,6 +31,20 @@ pub struct ScanStats {
     pub errors: usize,
     /// Password-protected sources found this run (stored with no entries, never opened).
     pub locked: usize,
+    /// Collections with a source listed or removed: they need resolving again.
+    pub dirty: BTreeSet<String>,
+}
+
+impl ScanStats {
+    pub fn add(&mut self, o: &ScanStats) {
+        self.sources += o.sources;
+        self.listed += o.listed;
+        self.reused += o.reused;
+        self.removed += o.removed;
+        self.errors += o.errors;
+        self.locked += o.locked;
+        self.dirty.extend(o.dirty.iter().cloned());
+    }
 }
 
 #[derive(Debug)]
@@ -50,19 +64,51 @@ fn now() -> String {
     secs.to_string()
 }
 
+/// Comparison key for root paths: lowercase, `\` separators, no trailing separator.
+fn root_key(path: &str) -> String {
+    path.replace('/', "\\").trim_end_matches('\\').to_lowercase()
+}
+
+fn all_roots(conn: &Connection) -> Result<Vec<(i64, String)>, IndexError> {
+    let mut st = conn.prepare("SELECT id, path FROM roots ORDER BY id")?;
+    let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+    Ok(rows)
+}
+
 /// Register a folder as a root (its name becomes the volume). Returns the existing id if it is
-/// already a root.
+/// already a root, ignoring case and trailing separators.
 pub fn add_root(conn: &Connection, path: &Path) -> Result<i64, IndexError> {
     let path = std::path::absolute(path)?;
-    let key = path.to_string_lossy();
-    let name = path
-        .file_name()
-        .map_or_else(|| key.to_string(), |n| n.to_string_lossy().into_owned());
+    let mut key = path.to_string_lossy().into_owned();
+    // keep "D:\" for a drive root ("D:" alone means the current dir on D:)
+    while (key.ends_with('\\') || key.ends_with('/')) && !key.ends_with(":\\") && !key.ends_with(":/") {
+        key.pop();
+    }
+    if let Some((id, _)) = all_roots(conn)?.into_iter().find(|(_, p)| root_key(p) == root_key(&key)) {
+        return Ok(id);
+    }
+    let name = stl_core::names::volume_name(&key);
+    let key = key.as_str();
     conn.execute(
         "INSERT OR IGNORE INTO roots(path, name, added_at) VALUES (?1, ?2, ?3)",
         params![key, name, now()],
     )?;
     Ok(conn.query_row("SELECT id FROM roots WHERE path = ?", [key], |r| r.get(0))?)
+}
+
+/// The outermost other root that contains this one, if any. A covered root's folders are
+/// indexed under the covering root, so its sources are stored only once.
+pub fn covering_root(conn: &Connection, root_id: i64) -> Result<Option<i64>, IndexError> {
+    let roots = all_roots(conn)?;
+    let Some((_, me)) = roots.iter().find(|(id, _)| *id == root_id) else {
+        return Err(IndexError::UnknownRoot(root_id));
+    };
+    let me = root_key(me);
+    Ok(roots
+        .iter()
+        .filter(|(id, p)| *id != root_id && me.starts_with(&format!("{}\\", root_key(p))))
+        .min_by_key(|(_, p)| p.len())
+        .map(|(id, _)| *id))
 }
 
 /// What listing a source produced.
@@ -98,6 +144,9 @@ fn scan_root_with(
         .optional()?
         .ok_or(IndexError::UnknownRoot(root_id))?;
     let root = PathBuf::from(root);
+    if covering_root(conn, root_id)?.is_some() {
+        return Ok(ScanStats::default());
+    }
     if !root.is_dir() {
         return Err(IndexError::RootMissing(root));
     }
@@ -146,16 +195,18 @@ fn scan_root_with(
         };
         store_listing(conn, root_id, src, &entries, error.as_deref(), locked)?;
         stats.listed += 1;
+        stats.dirty.insert(src.collection.clone());
     }
-    let stale: Vec<(i64, String)> = {
-        let mut st = conn.prepare("SELECT id, path FROM sources WHERE root_id = ?")?;
-        st.query_map([root_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+    let stale: Vec<(i64, String, String)> = {
+        let mut st = conn.prepare("SELECT id, path, coalesce(collection, '') FROM sources WHERE root_id = ?")?;
+        st.query_map([root_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<Result<_, _>>()?
     };
-    for (id, path) in stale {
+    for (id, path, collection) in stale {
         if !seen.contains(&path) {
             conn.execute("DELETE FROM sources WHERE id = ?", [id])?;
             stats.removed += 1;
+            stats.dirty.insert(collection);
         }
     }
     Ok(stats)

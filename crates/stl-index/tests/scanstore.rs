@@ -231,3 +231,26 @@ fn missing_root_is_error_and_keeps_data() {
     assert!(matches!(scan(&mut f), Err(IndexError::RootMissing(_))));
     assert_eq!(count(&f.conn, "SELECT count(*) FROM sources"), 3);
 }
+
+#[test]
+fn add_root_ignores_case_and_trailing_separator() {
+    let f = fixture();
+    let shouted = format!("{}\\", f.root.display()).to_uppercase();
+    assert_eq!(scanstore::add_root(&f.conn, Path::new(&shouted)).unwrap(), f.root_id);
+    assert_eq!(count(&f.conn, "SELECT count(*) FROM roots"), 1);
+}
+
+#[test]
+fn inner_root_is_covered_by_outer() {
+    let mut f = fixture();
+    let inner = f.root.join("A");
+    let inner_id = scanstore::add_root(&f.conn, &inner).unwrap();
+    assert_eq!(scanstore::covering_root(&f.conn, inner_id).unwrap(), Some(f.root_id));
+    assert_eq!(scanstore::covering_root(&f.conn, f.root_id).unwrap(), None);
+    stl_index::resolvestore::index_all(&mut f.conn, &ListOptions::default(), &mut |_| {}).unwrap();
+    let outer_only = format!("SELECT count(*) FROM sources WHERE root_id <> {}", f.root_id);
+    assert_eq!(count(&f.conn, &outer_only), 0);
+    let s = stl_index::resolvestore::index_all(&mut f.conn, &ListOptions::default(), &mut |_| {}).unwrap();
+    assert_eq!((s.scan.removed, s.scan.listed), (0, 0));
+    assert_eq!(count(&f.conn, &outer_only), 0);
+}
