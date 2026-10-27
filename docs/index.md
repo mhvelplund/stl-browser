@@ -7,7 +7,8 @@ anything out to Explorer to extract it.
 
 - Full design: [`superpowers/specs/2026-10-27-stl-browser-design.md`]
 - Implementation plans: [`superpowers/plans/2026-10-27-skeleton-and-scan.md`] (milestones 1–2),
-  [`superpowers/plans/2026-10-27-resolve.md`] (milestone 3)
+  [`superpowers/plans/2026-10-27-resolve.md`] (milestone 3), `superpowers/plans/2026-10-27-browse-ui.md`
+  (milestone 4; plans are git-ignored)
 - Layout patterns, the model resolver, and the parity baseline: [`archive-patterns.md`]
 - The virtual folder tree, the two views, and the naming rules: [`virtual-tree.md`]
 - UI mockup (clickable): <https://claude.ai/artifact/Vum7b4yY5TjCBW1Csez2BH>
@@ -27,8 +28,8 @@ anything out to Explorer to extract it.
 | 1. Skeleton: workspace, Tauri app, `~/.stl-browser/index.db`, schema + migrations, settings  | done                                          |
 | 2. Scan: native ZIP/7Z/RAR, nested archives, extract by chain, discovery, incremental rescan | done                                          |
 | 3. Resolve: port of the prototype's model resolver and virtual tree                          | done                                          |
-| 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                      | next                                          |
-| 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | planned                                       |
+| 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                      | done                                          |
+| 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | next                                          |
 | 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | planned                                       |
 | 7. Tags, search, filters                                                                     | later (only the database tables exist so far) |
 
@@ -48,6 +49,10 @@ Milestone 3 was checked against Vol.1 + Vol.2 together with `stlx parity` agains
   - Re-resolving all 11 collections takes 0.7 s.
   - Each view builds in under 0.5 s.
 
+Milestone 4 was smoke-tested in `tauri dev` on Vol.1, driving the WebView over CDP: navigation in both views, a
+RAR opened as a folder with correct hover paths, Rescan with progress (unchanged: 0.9 s), Back/Up, the virtualized grid
+and the light scheme. The native Add folder dialog and padlock tiles still need a manual check.
+
 ## Architecture
 
 ```text
@@ -57,8 +62,10 @@ crates/stl-core/           pure logic, no I/O: file kinds and name heuristics (n
 crates/stl-scan/           archive readers (ZIP, 7Z, RAR behind one trait), nested listing, extract by chain, discovery
 crates/stl-index/          app dir, SQLite schema + migrations, incremental scans (scanstore.rs), per-collection resolve
                            (resolvestore.rs), views from the DB (views.rs), prototype parity (parity.rs), `stlx` dev CLI
-app/src-tauri/             Tauri shell: state, commands
-app/src/                   SvelteKit UI (static adapter)
+app/src-tauri/             Tauri shell: state (DB + cached views + busy flag), commands, browse.rs (listings),
+                           indexer.rs (background index runs and their events)
+app/src/                   SvelteKit UI (static adapter): routes/+page.svelte plus components and pure logic
+                           modules (grid, nav, items) in lib/, tested with `node --test`
 ```
 
 Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Windows OLE drag-out).
@@ -111,6 +118,22 @@ Both views are built in memory from the DB (`views.rs` loads the rows, `stl-core
 [`virtual-tree.md`] for the layout and the naming rules. `stlx tree models|files [<path>] [--depth N] [--real]`
 prints either view.
 
+### The app (milestone 4)
+
+- **Commands:** `status` (roots with a `missing` flag, model and file counts, busy flag), `list_folder(view, path)`,
+  `add_folder(path)` (the folder picker is the dialog plugin, called from the UI) and `rescan`.
+- **Index runs** happen on a background thread with their own SQLite connection, so browsing keeps working. They send
+  `index-progress` (`index`/`total`/`name` per source) and one `index-done` (stats, warnings or error). Only one run at a
+  time: a second request is refused. A panic in a run is caught and reported as an error.
+- **The tree cache.** Both trees and their per-node counts are built once (on first use) and kept in `AppState`. The
+  index worker rebuilds them after each run and swaps them in before it sends `index-done`.
+- **`list_folder`** takes the path as name segments (a name may contain `/`), and lists the deepest folder that still
+  exists. The returned `path` says where it ended up, so the UI follows when a folder vanished in a rescan.
+- **UI:** toolbar (Back, Up, breadcrumbs, Models | Files, Rescan all, Add folder), a title row with counts, a virtualized
+  grid of tiles (min 200 px, square art, name, caption) and a status bar (stats, missing folders, the selected item's
+  real path, index progress). Placeholder art per kind until thumbnails; a box-with-padlock for locked archives.
+  Double-click or Enter opens; Backspace / Alt+Up goes up; Alt+Left goes back (Back restores the scroll position).
+
 ## Decisions
 
 ### Made by you
@@ -152,6 +175,13 @@ prints either view.
 - **`locked` flags on sources and entries** (schema v3) mark password-protected archives.
 - **Panics are caught.** The release build uses `panic = "unwind"`, so a crash inside an archive library becomes an
   error on that archive instead of closing the app.
+- *Added in milestone 4:*
+  - **Trees are cached in `AppState`** and rebuilt by the index worker after every run (about 0.8 s for both views).
+  - **The Files view hides other files.** It lists folders, images and object files (`model`, `scene`). The Models
+    view shows everything the resolver put in the tree, so its `docs` folders keep their documents.
+  - **No Extract to… or thumbnail UI yet**, so no buttons that do nothing.
+  - **Offline fonts:** IBM Plex if installed, else Segoe UI; nothing is fetched at runtime.
+  - **UI logic tests** use Node's built-in runner on the TypeScript files (no test framework dependency).
 - *Added in milestone 3:*
   - **Resolution unit: (root, collection).** Two different roots can't mix their files in one resolve. Two roots with
     the same volume name still show one shared collection folder in the Models view, where clashing models get
@@ -236,7 +266,9 @@ From the milestone 3 review:
 
 ## Working notes
 
-- Run all tests with `cargo test --workspace`. Run RAR against a real file with
+- Run all tests with `cargo test --workspace`, `npm --prefix app test` and `npm --prefix app run check`.
+- To drive the running app from a script, start it with
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and talk CDP to `http://127.0.0.1:9222/json`. Run RAR against a real file with
   `STL_BROWSER_RAR_FIXTURE=<file.rar> cargo test -p stl-scan --test rar -- --ignored`.
 - Dev CLI: `cargo run --release -p stl-index --bin stlx -- add <dir> | index | tree models|files [<path>] | parity
   <prototype.db> | extract <entry_id> <out>`. Set `STL_BROWSER_HOME` to keep test runs out of `~/.stl-browser`.
