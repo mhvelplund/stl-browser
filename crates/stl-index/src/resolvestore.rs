@@ -29,6 +29,15 @@ pub fn index_all(
     opts: &ListOptions,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<IndexStats, IndexError> {
+    index_all_with(conn, opts, progress, &resolve)
+}
+
+fn index_all_with(
+    conn: &mut Connection,
+    opts: &ListOptions,
+    progress: &mut dyn FnMut(Progress),
+    resolver: &Resolver,
+) -> Result<IndexStats, IndexError> {
     let roots: Vec<i64> = {
         let mut st = conn.prepare("SELECT id FROM roots ORDER BY id")?;
         st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?
@@ -56,7 +65,11 @@ pub fn index_all(
             todo.extend(never);
         }
         for coll in &todo {
-            resolve_collection(conn, root_id, coll)?;
+            match resolve_collection_with(conn, root_id, coll, resolver) {
+                Ok(_) => {}
+                Err(e @ IndexError::ResolvePanic { .. }) => progress(Progress::Warning(&e.to_string())),
+                Err(e) => return Err(e),
+            }
             stats.resolved += 1;
         }
         stats.scan.add(&s);
@@ -115,21 +128,46 @@ fn collection_entries(tx: &Transaction, root_id: i64, collection: &str) -> rusql
     Ok((entries, owner))
 }
 
+type Resolver = dyn Fn(&str, &[Entry]) -> Resolution;
+
 /// Rebuild one unit's resolved rows. Returns the number of models it now has.
 pub fn resolve_collection(conn: &mut Connection, root_id: i64, collection: &str) -> Result<usize, IndexError> {
+    resolve_collection_with(conn, root_id, collection, &resolve)
+}
+
+/// Like [`resolve_collection`], with the resolver passed in. A panic in the resolver (heuristics
+/// over untrusted names) leaves the unit empty but marked resolved, so it isn't retried until
+/// one of its sources changes, and returns [`IndexError::ResolvePanic`].
+fn resolve_collection_with(conn: &mut Connection, root_id: i64, collection: &str, resolver: &Resolver) -> Result<usize, IndexError> {
     let tx = conn.transaction()?;
     delete_unit(&tx, root_id, collection)?;
     let (entries, owner) = collection_entries(&tx, root_id, collection)?;
     let mut models = 0;
+    let mut panicked = None;
     if !entries.is_empty() {
         let name = collection.split_once('/').map_or(collection, |(_, rest)| rest);
-        let res = resolve(name, &entries);
-        models = res.models.len();
-        store(&tx, root_id, collection, &res, &owner)?;
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| resolver(name, &entries))) {
+            Ok(res) => {
+                models = res.models.len();
+                store(&tx, root_id, collection, &res, &owner)?;
+            }
+            Err(payload) => {
+                panicked = Some(
+                    payload
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "unknown".into()),
+                );
+            }
+        }
     }
     tx.execute("INSERT INTO resolved(root_id, collection) VALUES (?1, ?2)", params![root_id, collection])?;
     tx.commit()?;
-    Ok(models)
+    match panicked {
+        Some(message) => Err(IndexError::ResolvePanic { collection: collection.to_string(), message }),
+        None => Ok(models),
+    }
 }
 
 fn store(tx: &Transaction, root_id: i64, collection: &str, res: &Resolution, owner: &HashMap<i64, i64>) -> rusqlite::Result<()> {
@@ -251,4 +289,45 @@ fn store(tx: &Transaction, root_id: i64, collection: &str, res: &Resolution, own
         tx.execute("UPDATE models SET hero_asset_id = ?1, hero_fallback_asset_id = ?2 WHERE id = ?3", params![hero, fallback, mid])?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panicking_resolver_skips_that_collection_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("Vol");
+        for (rel, inner) in [("A/a.zip", "a/a.stl"), ("A/b.zip", "b/b.stl"), ("B/c.zip", "c/c.stl"), ("B/d.zip", "d/d.stl")] {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            w.start_file(inner, zip::write::SimpleFileOptions::default()).unwrap();
+            std::io::Write::write_all(&mut w, b"x").unwrap();
+            std::fs::write(p, w.finish().unwrap().into_inner()).unwrap();
+        }
+        let mut conn = crate::db::open(&tmp.path().join("index.db")).unwrap();
+        scanstore::add_root(&conn, &root).unwrap();
+        let resolver = |name: &str, entries: &[Entry]| -> Resolution {
+            if name == "A" {
+                panic!("resolver exploded");
+            }
+            resolve(name, entries)
+        };
+        let mut warnings = Vec::new();
+        let s = index_all_with(&mut conn, &ListOptions::default(), &mut |p| {
+            if let Progress::Warning(w) = p {
+                warnings.push(w.to_string());
+            }
+        }, &resolver)
+        .unwrap();
+        assert_eq!(s.resolved, 2);
+        assert!(warnings.iter().any(|w| w.contains("Vol/A") && w.contains("resolver exploded")), "{warnings:?}");
+        let b: i64 = conn.query_row("SELECT count(*) FROM models WHERE collection = 'Vol/B'", [], |r| r.get(0)).unwrap();
+        assert_eq!(b, 2);
+        // not retried (and re-panicking) until one of its sources changes
+        let s = index_all_with(&mut conn, &ListOptions::default(), &mut |_| {}, &resolver).unwrap();
+        assert_eq!(s.resolved, 0);
+    }
 }

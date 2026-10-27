@@ -76,6 +76,23 @@ fn changed_collection_only_is_reresolved() {
 }
 
 #[test]
+fn change_scanned_but_not_resolved_is_resolved_next_run() {
+    // an index run interrupted after the scan stored a changed source, before resolving
+    let mut f = fixture();
+    index(&mut f);
+    rewrite(&f.root, "A/Kit.zip", &zip(&[("Kit/Kit.jpg", b"j"), ("Kit/a.stl", b"a"), ("Kit/c.stl", b"c")]));
+    let root_id: i64 = f.conn.query_row("SELECT id FROM roots", [], |r| r.get(0)).unwrap();
+    scanstore::scan_root(&mut f.conn, root_id, &ListOptions::default(), &mut |_| {}).unwrap();
+    let s = index(&mut f);
+    assert_eq!(s.resolved, 1);
+    assert_eq!(
+        count(&f.conn, "SELECT count(*) FROM model_files mf LEFT JOIN entries e ON e.id = mf.entry_id WHERE e.id IS NULL"),
+        0
+    );
+    assert_eq!(count(&f.conn, "SELECT count(*) FROM model_files mf JOIN models m ON m.id = mf.model_id WHERE m.name = 'Kit'"), 2);
+}
+
+#[test]
 fn removed_collection_loses_rows() {
     let mut f = fixture();
     index(&mut f);
