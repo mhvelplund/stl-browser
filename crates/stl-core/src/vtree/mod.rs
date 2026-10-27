@@ -1,6 +1,8 @@
 //! The virtual folder tree shown by both views, and the naming rules they share: lowercase
 //! names, `_N` postfixes for clashes, hover (real) paths with `!` at archive boundaries.
 //! See `docs/virtual-tree.md`.
+pub mod models;
+
 use indexmap::IndexMap;
 
 use crate::names;
