@@ -10,5 +10,6 @@ version = "0.1.0"
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+# unwind, not abort: a parser panic on a corrupt archive must become a source error
+panic = "unwind"
 strip = true
