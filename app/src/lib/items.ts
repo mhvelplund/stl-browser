@@ -23,6 +23,9 @@ export function subtitle(item: Item, view: View): string {
 }
 
 export function folderSummary(l: Listing, view: View): string {
-  if (view === "models") return `${n(l.models, "model")} · ${n(l.images, "image")} · ${n(l.files, "file")}`;
+  if (view === "models") {
+    const models = l.models > 0 ? `${n(l.models, "model")} · ` : "";
+    return `${models}${n(l.images, "image")} · ${n(l.files, "file")}`;
+  }
   return `${n(l.items.length, "item")} · ${n(l.files, "file")}`;
 }
