@@ -4,12 +4,13 @@
 //!   stlx index                      scan all roots and resolve changed collections
 //!   stlx tree models|files [<path>] [--depth N] [--real]   print a view
 //!   stlx extract <entry_id> <out>   extract one indexed file
+//!   stlx parity <prototype.db>      compare the resolved tables with the prototype's
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
 use stl_core::vtree::{NodeId, NodeKind, is_file_kind};
-use stl_index::{db, paths, resolvestore, scanstore, views};
+use stl_index::{db, parity, paths, resolvestore, scanstore, views};
 use stl_scan::extract::{SourceKind, extract_entry};
 use stl_scan::nested::ListOptions;
 
@@ -56,6 +57,7 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             );
         }
         ["tree", view, rest @ ..] => tree(&conn, view, rest)?,
+        ["parity", proto] => parity(&conn, proto)?,
         ["extract", id, out] => {
             let (kind, path, chain): (String, String, String) = conn.query_row(
                 "SELECT s.kind, s.path, e.chain FROM entries e JOIN sources s ON s.id = e.source_id WHERE e.id = ?",
@@ -79,7 +81,64 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-const USAGE: &str = "usage: stlx add <dir> | index | extract <entry_id> <out> | tree models|files [<path>] [--depth N] [--real]";
+const USAGE: &str = "usage: stlx add <dir> | index | extract <entry_id> <out> | tree models|files [<path>] [--depth N] [--real] \
+                     | parity <prototype.db>";
+
+/// Compare our resolved tables with the prototype's DB (opened read-only, never migrated).
+fn parity(conn: &rusqlite::Connection, proto: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let p = rusqlite::Connection::open_with_flags(proto, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let (ours, theirs) = (parity::collection_stats(conn)?, parity::collection_stats(&p)?);
+    let colls: std::collections::BTreeSet<&String> = ours.keys().chain(theirs.keys()).collect();
+    let none = parity::Stats::default();
+    println!("{:58} {:>11} {:>9} {:>11} {:>11} {:>11}", "collection (ours/proto)", "models", "groups", "no own img", "no img/fb", "unattached");
+    let mut vols: std::collections::BTreeMap<&str, [(u64, u64); 5]> = Default::default();
+    let mut roles: std::collections::BTreeMap<String, (u64, u64)> = Default::default();
+    for c in colls {
+        let (a, b) = (ours.get(c).unwrap_or(&none), theirs.get(c).unwrap_or(&none));
+        let pairs = [
+            (a.models, b.models),
+            (a.groups, b.groups),
+            (a.no_own_image, b.no_own_image),
+            (a.no_image_or_fallback, b.no_image_or_fallback),
+            (a.unattached_images, b.unattached_images),
+        ];
+        let cell = |(x, y): (u64, u64)| format!("{}{x}/{y}", if x == y { " " } else { "≠" });
+        let name: String = c.chars().take(58).collect();
+        println!("{name:58} {:>11} {:>9} {:>11} {:>11} {:>11}", cell(pairs[0]), cell(pairs[1]), cell(pairs[2]), cell(pairs[3]), cell(pairs[4]));
+        let v = vols.entry(c.split('/').next().unwrap_or(c)).or_default();
+        for (t, (x, y)) in v.iter_mut().zip(pairs) {
+            (t.0, t.1) = (t.0 + x, t.1 + y);
+        }
+        for (role, n) in &a.assets_by_role {
+            roles.entry(role.clone()).or_default().0 += n;
+        }
+        for (role, n) in &b.assets_by_role {
+            roles.entry(role.clone()).or_default().1 += n;
+        }
+    }
+    println!();
+    for (vol, t) in &vols {
+        println!(
+            "{vol:58} models {}/{} · groups {}/{} · no own img {}/{} · no img/fb {}/{} · unattached {}/{}",
+            t[0].0, t[0].1, t[1].0, t[1].1, t[2].0, t[2].1, t[3].0, t[3].1, t[4].0, t[4].1
+        );
+    }
+    let roles: Vec<String> = roles.iter().map(|(r, (x, y))| format!("{r} {x}/{y}")).collect();
+    println!("assets by role (ours/proto): {}", roles.join(" · "));
+    println!();
+    let mut failed = 0;
+    for (name, _) in parity::SPOT_CHECKS {
+        let (x, y) = (parity::spot_value(conn, name)?, parity::spot_value(&p, name)?);
+        if parity::same_value(&x, &y) {
+            println!("PASS {name}: {x}");
+        } else {
+            failed += 1;
+            println!("FAIL {name}: ours={x} proto={y}");
+        }
+    }
+    println!("spot checks: {}/{} pass", parity::SPOT_CHECKS.len() - failed, parity::SPOT_CHECKS.len());
+    Ok(())
+}
 
 /// Print a view (or the subtree at `path`) as an indented list.
 fn tree(conn: &rusqlite::Connection, view: &str, args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
