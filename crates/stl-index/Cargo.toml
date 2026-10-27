@@ -1,0 +1,6 @@
+[package]
+name = "stl-index"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

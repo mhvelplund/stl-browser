@@ -1,0 +1,6 @@
+[package]
+name = "stl-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
