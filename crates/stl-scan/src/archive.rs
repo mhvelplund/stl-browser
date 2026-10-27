@@ -46,6 +46,19 @@ pub struct Member {
 pub trait Archive: Send {
     fn list(&mut self) -> Result<Vec<Member>, ScanError>;
     fn extract(&mut self, raw_name: &str, out: &mut dyn Write) -> Result<(), ScanError>;
+    /// Extract a member to a file. Readers that can only hand out whole members in memory
+    /// (RAR) override this to write straight to disk.
+    fn extract_to_path(&mut self, raw_name: &str, dest: &std::path::Path) -> Result<(), ScanError> {
+        let mut f = std::io::BufWriter::new(File::create(dest)?);
+        self.extract(raw_name, &mut f)?;
+        f.flush()?;
+        Ok(())
+    }
+    /// True when `extract` buffers the whole member in memory, so big members should go
+    /// through `extract_to_path` instead.
+    fn buffers_members(&self) -> bool {
+        false
+    }
     /// Extract several members in one sequential pass (cheap for solid archives). `f` gets each
     /// requested member's raw name and bytes.
     fn extract_many(
@@ -200,13 +213,27 @@ impl Archive for SevenZReader {
             .collect())
     }
 
+    /// Streams the member: entries before it in a solid block are decoded into a sink, never
+    /// buffered (`read_file` would hold them all in memory).
     fn extract(&mut self, raw_name: &str, out: &mut dyn Write) -> Result<(), ScanError> {
-        let data = self.reader.read_file(raw_name).map_err(|e| match e {
-            sevenz_rust2::Error::FileNotFound => ScanError::Format(format!("no member '{raw_name}'")),
-            other => sevenz_err(other),
-        })?;
-        out.write_all(&data)?;
-        Ok(())
+        let mut found = false;
+        let mut write_err: Option<std::io::Error> = None;
+        let r = self.reader.for_each_entries(|entry, data| {
+            if entry.name != raw_name || entry.is_directory {
+                std::io::copy(data, &mut std::io::sink()).map_err(|e| sevenz_rust2::Error::Io(e, "skip".into()))?;
+                return Ok(true);
+            }
+            found = true;
+            if let Err(e) = std::io::copy(data, out) {
+                write_err = Some(e);
+            }
+            Ok(false)
+        });
+        if let Some(e) = write_err {
+            return Err(ScanError::Io(e));
+        }
+        r.map_err(sevenz_err)?;
+        if found { Ok(()) } else { Err(ScanError::Format(format!("no member '{raw_name}'"))) }
     }
 
     fn extract_many(
@@ -225,7 +252,8 @@ impl Archive for SevenZReader {
                     .map_err(|e| sevenz_rust2::Error::Io(e, "skip".into()))?;
                 return Ok(true);
             }
-            let mut buf = Vec::with_capacity(entry.size as usize);
+            // the header's size is untrusted: don't let a corrupt one reserve gigabytes up front
+            let mut buf = Vec::with_capacity(entry.size.min(1 << 20) as usize);
             data.read_to_end(&mut buf).map_err(|e| sevenz_rust2::Error::Io(e, "read".into()))?;
             remaining -= 1;
             if let Err(e) = f(&entry.name, &buf) {
@@ -323,6 +351,26 @@ impl Archive for RarReader {
             Ok(false)
         })?;
         if found { Ok(()) } else { Err(ScanError::Format(format!("no member '{raw_name}'"))) }
+    }
+
+    fn extract_to_path(&mut self, raw_name: &str, dest: &std::path::Path) -> Result<(), ScanError> {
+        let mut cursor = unrar::Archive::new(&self.path).open_for_processing().map_err(rar_err)?;
+        while let Some(header) = cursor.read_header().map_err(rar_err)? {
+            let entry = header.entry();
+            if entry.is_file() && entry.filename.to_string_lossy() == raw_name {
+                if entry.is_encrypted() {
+                    return Err(ScanError::Encrypted);
+                }
+                header.extract_to(dest).map_err(rar_err)?;
+                return Ok(());
+            }
+            cursor = header.skip().map_err(rar_err)?;
+        }
+        Err(ScanError::Format(format!("no member '{raw_name}'")))
+    }
+
+    fn buffers_members(&self) -> bool {
+        true
     }
 
     fn extract_many(

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use stl_core::names::{self, Kind};
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempPath};
 
 use crate::archive::{self, Archive, ArchiveInput};
 use crate::error::ScanError;
@@ -94,8 +94,17 @@ pub(crate) fn open_member(
     parent: &mut dyn Archive,
     raw_name: &str,
     opts: &ListOptions,
-) -> Result<(Box<dyn Archive>, Option<NamedTempFile>), ScanError> {
+) -> Result<(Box<dyn Archive>, Option<TempPath>), ScanError> {
     let ext = names::ext(raw_name);
+    if parent.buffers_members() {
+        // never pull a whole nested archive into memory through a buffering reader
+        // close our handle first: unrar must be able to create/overwrite the file itself
+        let path = tempfile::Builder::new().prefix("stl-browser-").suffix(&ext).tempfile()?.into_temp_path();
+        parent.extract_to_path(raw_name, &path)?;
+        SPILLS.fetch_add(1, Ordering::Relaxed);
+        let a = archive::open(ArchiveInput::Path(path.to_path_buf()))?;
+        return Ok((a, Some(path)));
+    }
     let limit = if ext == ".rar" { 0 } else { opts.mem_limit };
     let mut w = SpillWriter { mem: Vec::new(), file: None, limit, ext: ext.clone() };
     parent.extract(raw_name, &mut w)?;
@@ -103,8 +112,9 @@ pub(crate) fn open_member(
         Some(mut f) => {
             f.flush()?;
             SPILLS.fetch_add(1, Ordering::Relaxed);
-            let a = archive::open(ArchiveInput::Path(f.path().to_path_buf()))?;
-            Ok((a, Some(f)))
+            let path = f.into_temp_path();
+            let a = archive::open(ArchiveInput::Path(path.to_path_buf()))?;
+            Ok((a, Some(path)))
         }
         None => Ok((archive::open(ArchiveInput::Bytes(Arc::new(w.mem), format!("member{ext}")))?, None)),
     }
