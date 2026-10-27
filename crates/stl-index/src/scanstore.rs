@@ -62,12 +62,24 @@ pub fn add_root(conn: &Connection, path: &Path) -> Result<i64, IndexError> {
     Ok(conn.query_row("SELECT id FROM roots WHERE path = ?", [key], |r| r.get(0))?)
 }
 
+type Lister = dyn Fn(&SourceInfo, &ListOptions) -> Result<(Vec<ScannedEntry>, Vec<String>), String>;
+
 /// Scan one root. A missing root folder is an error and leaves its data untouched.
 pub fn scan_root(
     conn: &mut Connection,
     root_id: i64,
     opts: &ListOptions,
     progress: &mut dyn FnMut(Progress),
+) -> Result<ScanStats, IndexError> {
+    scan_root_with(conn, root_id, opts, progress, &list_source)
+}
+
+fn scan_root_with(
+    conn: &mut Connection,
+    root_id: i64,
+    opts: &ListOptions,
+    progress: &mut dyn FnMut(Progress),
+    lister: &Lister,
 ) -> Result<ScanStats, IndexError> {
     let root: String = conn
         .query_row("SELECT path FROM roots WHERE id = ?", [root_id], |r| {
@@ -104,7 +116,7 @@ pub fn scan_root(
             stats.reused += 1;
             continue;
         }
-        let (entries, error) = match list_source(src, opts) {
+        let (entries, error) = match list_guarded(lister, src, opts) {
             Ok((entries, warnings)) => {
                 for w in &warnings {
                     progress(Progress::Warning(w));
@@ -133,6 +145,23 @@ pub fn scan_root(
         }
     }
     Ok(stats)
+}
+
+/// Run `lister`, turning a panic in a parser on untrusted archive data into a source error
+/// instead of taking the whole app down.
+fn list_guarded(
+    lister: &Lister,
+    src: &SourceInfo,
+    opts: &ListOptions,
+) -> Result<(Vec<ScannedEntry>, Vec<String>), String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lister(src, opts))).unwrap_or_else(|payload| {
+        let msg = payload
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unknown".into());
+        Err(format!("internal error while reading: {msg}"))
+    })
 }
 
 fn list_source(
@@ -190,4 +219,32 @@ fn store_listing(
     }
     tx.commit()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panicking_lister_is_recorded_as_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("Vol");
+        std::fs::create_dir_all(root.join("A")).unwrap();
+        std::fs::write(root.join("A/boom.zip"), b"x").unwrap();
+        std::fs::write(root.join("A/fine.zip"), b"y").unwrap();
+        let mut conn = crate::db::open(&tmp.path().join("index.db")).unwrap();
+        let id = add_root(&conn, &root).unwrap();
+        let lister = |src: &SourceInfo, _: &ListOptions| -> Result<(Vec<ScannedEntry>, Vec<String>), String> {
+            if src.name == "boom" {
+                panic!("parser exploded");
+            }
+            Ok((vec![ScannedEntry { path: "a.stl".into(), chain: vec!["a.stl".into()], size: 1, crc: String::new() }], Vec::new()))
+        };
+        let s = scan_root_with(&mut conn, id, &ListOptions::default(), &mut |_| {}, &lister).unwrap();
+        assert_eq!((s.listed, s.errors), (2, 1));
+        let err: String = conn.query_row("SELECT error FROM sources WHERE name = 'boom'", [], |r| r.get(0)).unwrap();
+        assert!(err.contains("parser exploded"), "{err}");
+        let n: i64 = conn.query_row("SELECT count(*) FROM entries", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+    }
 }
