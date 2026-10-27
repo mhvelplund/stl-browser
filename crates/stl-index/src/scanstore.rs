@@ -66,7 +66,7 @@ pub fn scan_root(
     if !root.is_dir() {
         return Err(IndexError::RootMissing(root));
     }
-    let sources = discover(&root)?;
+    let sources = discover(&root, &mut |w| progress(Progress::Warning(&w)))?;
     let mut stats = ScanStats { sources: sources.len(), ..ScanStats::default() };
     let mut seen = HashSet::new();
     for (index, src) in sources.iter().enumerate() {

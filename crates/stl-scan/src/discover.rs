@@ -39,7 +39,9 @@ fn collection(vol: &str, top: &str) -> String {
 }
 
 /// Sources under `root`: archives sorted by relative path, then folder sources sorted by name.
-pub fn discover(root: &Path) -> io::Result<Vec<SourceInfo>> {
+/// An unreadable folder or file below the root is skipped with a `warn` message (drive roots
+/// have `System Volume Information`, files can vanish mid-walk); an unreadable root is an error.
+pub fn discover(root: &Path, warn: &mut dyn FnMut(String)) -> io::Result<Vec<SourceInfo>> {
     let vol = root.file_name().map_or_else(|| root.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
     let mut archives = Vec::new();
     let mut loose: BTreeMap<String, Vec<(String, std::fs::Metadata)>> = BTreeMap::new();
@@ -48,7 +50,15 @@ pub fn discover(root: &Path) -> io::Result<Vec<SourceInfo>> {
         .into_iter()
         .filter_entry(|e| e.depth() == 0 || !(e.file_type().is_dir() && e.file_name().to_string_lossy().starts_with('.')));
     for entry in walker {
-        let entry = entry.map_err(io::Error::other)?;
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) if e.depth() == 0 => return Err(io::Error::other(e)),
+            Err(e) => {
+                let at = e.path().map_or_else(String::new, |p| p.display().to_string());
+                warn(format!("skipped {at}: {}", e.io_error().map_or_else(|| e.to_string(), |io| io.to_string())));
+                continue;
+            }
+        };
         if !entry.file_type().is_file() {
             continue;
         }
@@ -58,7 +68,13 @@ pub fn discover(root: &Path) -> io::Result<Vec<SourceInfo>> {
             Some((t, _)) => t.to_string(),
             None => String::new(),
         };
-        let meta = entry.metadata().map_err(io::Error::other)?;
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(e) => {
+                warn(format!("skipped {}: {e}", entry.path().display()));
+                continue;
+            }
+        };
         match names::kind_of(&file_name) {
             Kind::Archive => {
                 if names::ext(&file_name) == ".rar" && names::is_secondary_rar_volume(&file_name) {

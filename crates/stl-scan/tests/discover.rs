@@ -15,7 +15,7 @@ fn archives_and_loose() {
     common::write(&root, "A/img.jpg", b"jpg");
     common::write(&root, "B/sub/y.7z", &common::sevenz(&[("b.stl", b"2")]));
     common::write(&root, "top.stl", b"stl");
-    let s = discover(&root).unwrap();
+    let s = discover(&root, &mut |_| {}).unwrap();
     assert_eq!(s.len(), 4, "{s:?}");
 
     let x = find(&s, "Vol/A/x.zip");
@@ -43,7 +43,7 @@ fn skips_dot_dirs_and_junk() {
     let root = tmp.path().join("Vol");
     common::write(&root, ".3d-model-library/z.zip", &common::zip(&[("a.stl", b"1")]));
     common::write(&root, "A/desktop.ini", b"junk");
-    assert!(discover(&root).unwrap().is_empty());
+    assert!(discover(&root, &mut |_| {}).unwrap().is_empty());
 }
 
 #[test]
@@ -52,9 +52,31 @@ fn multipart_rar() {
     let root = tmp.path().join("Vol");
     common::write(&root, "A/k.part1.rar", b"r1");
     common::write(&root, "A/k.part2.rar", b"r2");
-    let s = discover(&root).unwrap();
+    let s = discover(&root, &mut |_| {}).unwrap();
     assert_eq!(s.len(), 1, "{s:?}");
     assert_eq!(s[0].name, "k");
+}
+
+#[cfg(windows)]
+#[test]
+fn unreadable_dir_warns_and_continues() {
+    use std::process::Command;
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("Vol");
+    common::write(&root, "A/a.zip", &common::zip(&[("a.stl", b"1")]));
+    common::write(&root, "Locked/b.zip", &common::zip(&[("b.stl", b"2")]));
+    let locked = root.join("Locked");
+    let everyone = "*S-1-1-0";
+    let deny = Command::new("icacls").arg(&locked).args(["/deny", &format!("{everyone}:(RX)")]).output().unwrap();
+    assert!(deny.status.success(), "{deny:?}");
+    let mut warnings = Vec::new();
+    let r = discover(&root, &mut |w| warnings.push(w));
+    Command::new("icacls").arg(&locked).args(["/remove:d", everyone]).output().unwrap();
+    let s = r.unwrap();
+    assert_eq!(s.len(), 1, "{s:?}");
+    assert_eq!(s[0].rel_path, "Vol/A/a.zip");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("Locked"), "{}", warnings[0]);
 }
 
 #[test]
@@ -62,6 +84,6 @@ fn unicode_dirs() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("Vol");
     common::write(&root, "03. ГОБЛИНЫ/a.zip", &common::zip(&[("a.stl", b"1")]));
-    let s = discover(&root).unwrap();
+    let s = discover(&root, &mut |_| {}).unwrap();
     assert_eq!(s[0].collection, "Vol/03. ГОБЛИНЫ");
 }
