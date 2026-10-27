@@ -1,30 +1,34 @@
 # STL Browser — design overview
 
 A Windows desktop app (Rust + Tauri 2, Svelte 5 UI) for browsing 3D-print collections: folders of STL/OBJ/LYS files and
-images, often inside RAR/ZIP/7Z archives nested inside other archives. You add folders to an index and browse them
-like Windows Explorer with very large icons. Each folder shows a carousel of the pictures inside it, and you can drag
+images, often inside RAR/ZIP/7Z archives nested inside other archives. You add folders to an index and browse them like
+Windows Explorer with very large icons. Each folder shows a carousel of the pictures inside it, and you can drag
 anything out to Explorer to extract it.
 
-- Full design: [`superpowers/specs/2026-10-27-stl-browser-design.md`](superpowers/specs/2026-10-27-stl-browser-design.md)
-- Current implementation plan: [`superpowers/plans/2026-10-27-skeleton-and-scan.md`](superpowers/plans/2026-10-27-skeleton-and-scan.md)
-- Layout patterns, the model resolver, and the parity baseline: [`archive-patterns.md`](archive-patterns.md)
-- The virtual folder tree, the two views, and the naming rules: [`virtual-tree.md`](virtual-tree.md)
-- UI mockup (clickable): https://claude.ai/artifact/Vum7b4yY5TjCBW1Csez2BH
-- `prototype/` holds the Python prototype. Its code and tests are the reference for porting the resolver
-  (milestone 3). It is **not** part of the app, and nothing in it is built or shipped. Its notes have been folded into
-  the pages above.
+- Full design: [`superpowers/specs/2026-10-27-stl-browser-design.md`]
+- Current implementation plan: [`superpowers/plans/2026-10-27-skeleton-and-scan.md`]
+- Layout patterns, the model resolver, and the parity baseline: [`archive-patterns.md`]
+- The virtual folder tree, the two views, and the naming rules: [`virtual-tree.md`]
+- UI mockup (clickable): <https://claude.ai/artifact/Vum7b4yY5TjCBW1Csez2BH>
+- `prototype/` holds the Python prototype. Its code and tests are the reference for porting the resolver (milestone 3).
+  It is **not** part of the app, and nothing in it is built or shipped. Its notes have been folded into the pages above.
+
+[`superpowers/specs/2026-10-27-stl-browser-design.md`]: superpowers/specs/2026-10-27-stl-browser-design.md
+[`superpowers/plans/2026-10-27-skeleton-and-scan.md`]: superpowers/plans/2026-10-27-skeleton-and-scan.md
+[`archive-patterns.md`]: archive-patterns.md
+[`virtual-tree.md`]: virtual-tree.md
 
 ## Status
 
-| Milestone                                                                                   | State                                           |
-|---------------------------------------------------------------------------------------------|-------------------------------------------------|
-| 1. Skeleton: workspace, Tauri app, `~/.stl-browser/index.db`, schema + migrations, settings | done                                            |
-| 2. Scan: native ZIP/7Z/RAR, nested archives, extract by chain, discovery, incremental rescan | done                                            |
-| 3. Resolve: port of the prototype's model resolver and virtual tree                         | next                                            |
-| 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                     | planned                                         |
-| 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                             | planned                                         |
-| 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                  | planned                                         |
-| 7. Tags, search, filters                                                                    | later (only the database tables exist so far)   |
+| Milestone                                                                                    | State                                         |
+|----------------------------------------------------------------------------------------------|-----------------------------------------------|
+| 1. Skeleton: workspace, Tauri app, `~/.stl-browser/index.db`, schema + migrations, settings  | done                                          |
+| 2. Scan: native ZIP/7Z/RAR, nested archives, extract by chain, discovery, incremental rescan | done                                          |
+| 3. Resolve: port of the prototype's model resolver and virtual tree                          | next                                          |
+| 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                      | planned                                       |
+| 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | planned                                       |
+| 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | planned                                       |
+| 7. Tags, search, filters                                                                     | later (only the database tables exist so far) |
 
 Milestones 1–2 were checked against the real `D:\STL\Warhammer 40K Collection Vol.1`. The scan found 45 sources and
 18,050 files (1,243 of them in nested archives) with 0 errors, the same as the prototype. It takes about 35 s, and a
@@ -32,7 +36,7 @@ rescan of unchanged folders takes 0 s.
 
 ## Architecture
 
-```
+```text
 Cargo.toml                 workspace
 crates/stl-core/           pure logic, no I/O: file kinds, name helpers (later: resolver, virtual tree)
 crates/stl-scan/           archive readers (ZIP, 7Z, RAR behind one trait), nested listing, extract by chain, discovery
@@ -47,8 +51,8 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
 ### Data on disk: `~/.stl-browser/`
 
 - `index.db` (SQLite, WAL), at schema version 3:
-  - **Cached listings:** `roots` (the added folders), `sources` (each archive, or each folder of loose files),
-    `entries` (every file found, with `chain`, the archive members to open in order to reach it).
+  - **Cached listings:** `roots` (the added folders), `sources` (each archive, or each folder of loose files), `entries`
+    (every file found, with `chain`, the archive members to open in order to reach it).
   - **User data, never rebuilt:** `settings`, `selected_thumb`, `tags`, `node_tags`. These are keyed by stable path
     strings, never by row ids.
   - **Later:** resolved tables (`groups`, `models`, `model_files`, `assets`, rebuilt on each index) and `thumbs`.
@@ -86,22 +90,22 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
   - *Models*: the resolver's cleaned-up tree (volume → collection → group → model → variant → parts).
   - *Files*: the real disk and archive layout, where archives open like folders.
 - **An added folder becomes a top-level volume.**
-- **Drag-out uses Windows virtual-file drag**, so files are extracted only when Explorer asks for them. "Extract to…"
-  is a fallback.
-- **Folder carousel.** Slot 0 is a 2×2 composite of four child folders' thumbnails, and then come the nested images.
-  The chosen slot is saved in the DB.
-- **Thumbnails are generated when a folder is first opened**, cached as `<hash of path>/<hash of file>`, and
-  regenerated if missing. STL files get rendered thumbnails.
+- **Drag-out uses Windows virtual-file drag**, so files are extracted only when Explorer asks for them. "Extract to…" is
+  a fallback.
+- **Folder carousel.** Slot 0 is a 2×2 composite of four child folders' thumbnails, and then come the nested images. The
+  chosen slot is saved in the DB.
+- **Thumbnails are generated when a folder is first opened**, cached as `<hash of path>/<hash of file>`, and regenerated
+  if missing. STL files get rendered thumbnails.
 - **Tags, search and filtering come later.** User data lives in the SQLite DB in `~/.stl-browser/`.
 - **Password-protected archives are not supported** *(added after milestone 2; the scanner side is done)*:
   - Don't try to scan them.
   - Show them as a single item with a **box-with-padlock** icon.
 - **All file and folder names are lowercase in the virtual file system** *(added after milestone 2)*:
-  - Folders that overlap merge their contents. This includes names differing only in case, like `D:\STL` and
-    `d:\stl\`, and an added folder that sits inside another added folder.
+  - Folders that overlap merge their contents. This includes names differing only in case, like `D:\STL` and `d:\stl\`,
+    and an added folder that sits inside another added folder.
   - Files whose names collide get a numbered postfix: `ORC.STL` and `Orc.stl` become `orc_1.stl` and `orc_2.stl`.
-- **Hovering over any element shows its real path** *(added after milestone 2)*. Each step into an archive is
-  marked with `!`, e.g. `folder/example.zip!orcs/mech.zip!leg.stl`.
+- **Hovering over any element shows its real path** *(added after milestone 2)*. Each step into an archive is marked
+  with `!`, e.g. `folder/example.zip!orcs/mech.zip!leg.stl`.
 
 ### Made by me (correct any that are wrong)
 
@@ -131,15 +135,13 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
 - **Lowercasing and merging:**
   - These apply to the *names shown* in both views. The real paths, which are kept for hovering and extraction, keep
     their original case.
-  - Merging applies to real folders that coincide. In the Models view, two *different* models that clean up to the
-    same name are not merged. They keep the prototype's rule: edition or raw name in brackets, e.g.
-    `illuminor szeras (5e)`.
+  - Merging applies to real folders that coincide. In the Models view, two *different* models that clean up to the same
+    name are not merged. They keep the prototype's rule: edition or raw name in brackets, e.g. `illuminor szeras (5e)`.
   - Clashing files are numbered in a stable order (by real path), starting at `_1`, and the postfix goes before the
     extension.
 - **Overlapping roots** (e.g. `D:\STL` and `D:\STL\Vol.1`):
   - Each source is indexed only once, under the outermost root.
-  - The inner root still appears as its own volume. Its contents merge with the same folders inside the outer
-    volume.
+  - The inner root still appears as its own volume. Its contents merge with the same folders inside the outer volume.
 - **Hover paths.**
   - The tooltip uses Windows separators up to the first archive, then `/` inside archives, with `!` at each archive
     boundary.
@@ -148,12 +150,13 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
 ## Deferred (known, not yet fixed)
 
 From the milestone 2 review:
+
 - **Slow ZIP opening.** Opening a ZIP reads every local file header twice. This can be slow on network drives, and one
   bad header fails the whole archive.
 - **Peak memory.** In-memory nested archives can still peak at about 1.5 GiB in the worst case (3 levels × buffer
   growth).
-- **Startup error dialog.** The error dialog at startup has never been exercised. `app_dir()` panics if
-  `~/.stl-browser` can't be created.
+- **Startup error dialog.** The error dialog at startup has never been exercised. `app_dir()` panics if `~/.stl-browser`
+  can't be created.
 - **Nested-archive warnings** are not stored, so the UI can't show which nested archives were skipped.
 - **Edge cases:**
   - A file deleted between discovery and listing fails its folder source.
@@ -161,8 +164,8 @@ From the milestone 2 review:
   - A DB from a newer app version opens without a warning.
 - **Missing tests:** Cyrillic paths end-to-end, multi-volume and solid RAR, and password-protected RAR (RAR fixtures
   can't be made without WinRAR; password-protected ZIP and 7Z are tested).
-- **Overlapping roots and drive-root volume names** (`D:\`). These are now covered by the new merge rule and get
-  fixed with it.
+- **Overlapping roots and drive-root volume names** (`D:\`). These are now covered by the new merge rule and get fixed
+  with it.
 
 ## Working notes
 
@@ -173,5 +176,5 @@ From the milestone 2 review:
 - `unrar_sys` doesn't link `advapi32`, so `stl-scan` links it explicitly.
 - unrar can't write to a temp file that is still open. Close the handle first (`NamedTempFile::into_temp_path`).
 - Shell heredocs in this environment mangle backslashes. Write source files with an editor.
-- `D:\STL\Warhammer 40K Collection Vol.1\.3d-model-library\` (`*_DO_NOT_DELETE.json`) belongs to another tool.
-  Discovery skips dot-folders, so leave it alone.
+- `D:\STL\Warhammer 40K Collection Vol.1\.3d-model-library\` (`*_DO_NOT_DELETE.json`) belongs to another tool. Discovery
+  skips dot-folders, so leave it alone.
