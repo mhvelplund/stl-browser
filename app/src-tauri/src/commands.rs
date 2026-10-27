@@ -1,6 +1,7 @@
 //! Tauri commands. Each command is a thin wrapper over an `_impl` fn that tests can call directly.
 use serde::Serialize;
 
+use crate::browse::{self, Listing, View};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -26,6 +27,17 @@ pub fn app_info_impl(state: &AppState) -> Result<AppInfo, String> {
 #[tauri::command]
 pub fn app_info(state: tauri::State<'_, AppState>) -> Result<AppInfo, String> {
     app_info_impl(&state)
+}
+
+pub fn list_folder_impl(state: &AppState, view: View, path: Vec<String>) -> Result<Listing, String> {
+    Ok(browse::list(&*state.views()?, view, &path))
+}
+
+/// List the folder at `path` (name segments from the root); falls back to the deepest folder
+/// that still exists, and says so in `Listing::path`.
+#[tauri::command]
+pub fn list_folder(state: tauri::State<'_, AppState>, view: View, path: Vec<String>) -> Result<Listing, String> {
+    list_folder_impl(&state, view, path)
 }
 
 #[cfg(test)]
