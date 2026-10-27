@@ -150,12 +150,28 @@ impl Tree {
                 }
             }
         }
-        for mut clash in self.clashes(&kids) {
+        let clashes = self.clashes(&kids);
+        // names a postfix must not produce: those of siblings that don't clash
+        let mut taken: std::collections::HashSet<String> = kids
+            .iter()
+            .filter(|c| !clashes.iter().any(|cl| cl.contains(c)))
+            .map(|&c| self.nodes[c].name.clone())
+            .collect();
+        for mut clash in clashes {
             // stable order: by first real path, then insertion order
             clash.sort_by(|&a, &b| self.nodes[a].real.first().cmp(&self.nodes[b].real.first()));
-            for (i, &c) in clash.iter().enumerate() {
-                let n = &mut self.nodes[c];
-                n.name = numbered(&n.name, i + 1, is_file_kind(n.kind));
+            let mut n = 0;
+            for &c in &clash {
+                let node = &self.nodes[c];
+                let name = loop {
+                    n += 1;
+                    let candidate = numbered(&node.name, n, is_file_kind(node.kind));
+                    if !taken.contains(&candidate) {
+                        break candidate;
+                    }
+                };
+                taken.insert(name.clone());
+                self.nodes[c].name = name;
             }
         }
         let nodes = &self.nodes;
@@ -290,6 +306,19 @@ mod tests {
         t.finish(&|_| None);
         assert_eq!(t.nodes[t.find("x_1").unwrap()].real, ["D:\\X"]);
         assert_eq!(t.nodes[t.find("x_2").unwrap()].real, ["D:\\x.zip"]);
+    }
+
+    #[test]
+    fn postfix_skips_names_already_taken() {
+        let mut t = tree_with(&[
+            ("Orc", NodeKind::Folder, "a"),
+            ("orc", NodeKind::Archive, "b"),
+            ("orc_1", NodeKind::Archive, "c"),
+        ]);
+        t.finish(&|_| None);
+        assert_eq!(child_names(&t, 0), ["orc_1", "orc_2", "orc_3"]);
+        assert_eq!(t.nodes[t.find("orc_1").unwrap()].real, ["c"]);
+        assert_eq!(t.nodes[t.find("orc_2").unwrap()].real, ["a"]);
     }
 
     #[test]

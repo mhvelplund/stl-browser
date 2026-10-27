@@ -20,6 +20,9 @@ pub enum IndexError {
     RootMissing(PathBuf),
     #[error("no root with id {0}")]
     UnknownRoot(i64),
+    /// The resolver panicked on a collection; it is left empty until one of its sources changes.
+    #[error("resolving {collection}: internal error: {message}")]
+    ResolvePanic { collection: String, message: String },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -204,7 +207,10 @@ fn scan_root_with(
     };
     for (id, path, collection) in stale {
         if !seen.contains(&path) {
-            conn.execute("DELETE FROM sources WHERE id = ?", [id])?;
+            let tx = conn.transaction()?;
+            tx.execute("DELETE FROM sources WHERE id = ?", [id])?;
+            tx.execute("DELETE FROM resolved WHERE root_id = ?1 AND collection = ?2", params![root_id, collection])?;
+            tx.commit()?;
             stats.removed += 1;
             stats.dirty.insert(collection);
         }
@@ -268,6 +274,14 @@ fn store_listing(
 ) -> Result<(), IndexError> {
     let tx = conn.transaction()?;
     let key = src.path.to_string_lossy();
+    // the collection (and the one the source was in before, maybe under another root) must be
+    // resolved again: committed with the new entries, so an interrupted index can't lose it
+    let old: Option<(i64, Option<String>)> = tx
+        .query_row("SELECT root_id, collection FROM sources WHERE path = ?", [&key], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?;
+    for (rid, coll) in old.into_iter().map(|(r, c)| (r, c.unwrap_or_default())).chain([(root_id, src.collection.clone())]) {
+        tx.execute("DELETE FROM resolved WHERE root_id = ?1 AND collection = ?2", params![rid, coll])?;
+    }
     tx.execute(
         "INSERT INTO sources(root_id, kind, path, rel_path, name, collection, coll_path, size, mtime, scanned_at, error, fingerprint, locked)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
