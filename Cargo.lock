@@ -3566,6 +3566,7 @@ checksum = "ff7589a1859b09232522bb9edf076ca7fcf14ded96685d3fa629db73023ffbb7"
 name = "stl-core"
 version = "0.1.0"
 dependencies = [
+ "indexmap 2.14.2",
  "regex",
 ]
 
@@ -3575,8 +3576,10 @@ version = "0.1.0"
 dependencies = [
  "dirs 6.0.0",
  "filetime",
+ "indexmap 2.14.2",
  "rusqlite",
  "serde_json",
+ "stl-core",
  "stl-scan",
  "tempfile",
  "thiserror 2.0.21",

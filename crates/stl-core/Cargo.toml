@@ -5,3 +5,4 @@ edition.workspace = true
 
 [dependencies]
 regex = "1"
+indexmap = "2"

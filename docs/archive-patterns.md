@@ -151,6 +151,17 @@ These are the prototype's numbers on both volumes in one index:
   - The rest are 11 Studio, 15 Model Collection and 2 Primarch-bust models.
 - **Targets:** under 5% of images left unattached, and every archive yields ≥1 model.
 
+### The Rust port's results (milestone 3)
+
+`stlx parity <prototype.db>` compares the resolved tables with the prototype's.
+
+- On Vol.1 + Vol.2, every number above matches exactly, per collection: models, groups, both image columns,
+  unattached images, and assets by role.
+- All the spot checks below pass, with the same values as the prototype.
+- Group counts are 64 (Vol.1) and 60 (Vol.2).
+- The TYRANIDS group holds 25 units, all with their own picture. The "33 of 34" in the spot checks below was an
+  estimate.
+
 ### Spot checks
 
 These must hold in the Rust port:
