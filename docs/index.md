@@ -6,15 +6,17 @@ Windows Explorer with very large icons. Each folder shows a carousel of the pict
 anything out to Explorer to extract it.
 
 - Full design: [`superpowers/specs/2026-10-27-stl-browser-design.md`]
-- Current implementation plan: [`superpowers/plans/2026-10-27-skeleton-and-scan.md`]
+- Implementation plans: [`superpowers/plans/2026-10-27-skeleton-and-scan.md`] (milestones 1–2),
+  [`superpowers/plans/2026-10-27-resolve.md`] (milestone 3)
 - Layout patterns, the model resolver, and the parity baseline: [`archive-patterns.md`]
 - The virtual folder tree, the two views, and the naming rules: [`virtual-tree.md`]
 - UI mockup (clickable): <https://claude.ai/artifact/Vum7b4yY5TjCBW1Csez2BH>
-- `prototype/` holds the Python prototype. Its code and tests are the reference for porting the resolver (milestone 3).
-  It is **not** part of the app, and nothing in it is built or shipped. Its notes have been folded into the pages above.
+- The Python prototype was the reference for the resolver port. Its tests live on as Rust tests in `crates/stl-core`.
+  After parity held, it was deleted in milestone 3, along with its DB. It is still in git history before that commit.
 
 [`superpowers/specs/2026-10-27-stl-browser-design.md`]: superpowers/specs/2026-10-27-stl-browser-design.md
 [`superpowers/plans/2026-10-27-skeleton-and-scan.md`]: superpowers/plans/2026-10-27-skeleton-and-scan.md
+[`superpowers/plans/2026-10-27-resolve.md`]: superpowers/plans/2026-10-27-resolve.md
 [`archive-patterns.md`]: archive-patterns.md
 [`virtual-tree.md`]: virtual-tree.md
 
@@ -24,8 +26,8 @@ anything out to Explorer to extract it.
 |----------------------------------------------------------------------------------------------|-----------------------------------------------|
 | 1. Skeleton: workspace, Tauri app, `~/.stl-browser/index.db`, schema + migrations, settings  | done                                          |
 | 2. Scan: native ZIP/7Z/RAR, nested archives, extract by chain, discovery, incremental rescan | done                                          |
-| 3. Resolve: port of the prototype's model resolver and virtual tree                          | next                                          |
-| 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                      | planned                                       |
+| 3. Resolve: port of the prototype's model resolver and virtual tree                          | done                                          |
+| 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                      | next                                          |
 | 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | planned                                       |
 | 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | planned                                       |
 | 7. Tags, search, filters                                                                     | later (only the database tables exist so far) |
@@ -34,28 +36,43 @@ Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.
 18,050 files (1,243 of them in nested archives) with 0 errors, the same as the prototype. It takes about 35 s, and a
 rescan of unchanged folders takes 0 s.
 
+Milestone 3 was checked against Vol.1 + Vol.2 together with `stlx parity` against the prototype's DB:
+
+- 346 sources, 48,942 files and 1,132 models (447 / 685).
+- Every per-collection count is equal to the prototype's: models, groups, "without own image" (70 / 135), "no image or
+  fallback" (11 / 117), unattached images (277 / 69), and assets by role.
+- All 14 spot checks pass.
+- Timings:
+  - The first index takes 234 s, almost all of it listing archives.
+  - Re-indexing unchanged folders takes 0.1 s and resolves nothing.
+  - Re-resolving all 11 collections takes 0.7 s.
+  - Each view builds in under 0.5 s.
+
 ## Architecture
 
 ```text
 Cargo.toml                 workspace
-crates/stl-core/           pure logic, no I/O: file kinds, name helpers (later: resolver, virtual tree)
+crates/stl-core/           pure logic, no I/O: file kinds and name heuristics (names.rs), the model resolver
+                           (resolve/), the virtual tree and both views (vtree/)
 crates/stl-scan/           archive readers (ZIP, 7Z, RAR behind one trait), nested listing, extract by chain, discovery
-crates/stl-index/          app dir, SQLite schema + migrations, incremental scan storage, `stlx` dev CLI
+crates/stl-index/          app dir, SQLite schema + migrations, incremental scans (scanstore.rs), per-collection resolve
+                           (resolvestore.rs), views from the DB (views.rs), prototype parity (parity.rs), `stlx` dev CLI
 app/src-tauri/             Tauri shell: state, commands
 app/src/                   SvelteKit UI (static adapter)
-prototype/                 reference only
 ```
 
 Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Windows OLE drag-out).
 
 ### Data on disk: `~/.stl-browser/`
 
-- `index.db` (SQLite, WAL), at schema version 3:
+- `index.db` (SQLite, WAL), at schema version 4:
   - **Cached listings:** `roots` (the added folders), `sources` (each archive, or each folder of loose files), `entries`
     (every file found, with `chain`, the archive members to open in order to reach it).
+  - **Resolved tables:** `groups`, `models`, `model_files`, `assets`. They are rebuilt per (root, collection) whenever
+    one of that collection's sources changes. `resolved` marks the collections that are up to date.
   - **User data, never rebuilt:** `settings`, `selected_thumb`, `tags`, `node_tags`. These are keyed by stable path
     strings, never by row ids.
-  - **Later:** resolved tables (`groups`, `models`, `model_files`, `assets`, rebuilt on each index) and `thumbs`.
+  - **Later:** `thumbs`.
 - `thumbs/<hash of location>/<hash of content>.webp`: 128×128 thumbnails that can be regenerated (milestone 5).
 - Tests and `stlx` can point everything elsewhere with `STL_BROWSER_HOME`.
 
@@ -79,6 +96,20 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
   with `locked = 1`, and it isn't opened either. The UI will show both with a box-with-padlock icon.
 - **Robustness:** a corrupt archive records an error on its source and the scan continues. A crash (panic) inside an
   archive library is caught and recorded the same way. No format can ever stop to ask for a password.
+- **Overlapping roots:** a root inside another root is never scanned on its own, so each source is stored once, under
+  the outer root. Adding the same folder twice (in a different case, or with a trailing `\`) returns the existing root.
+- **Resolving** (`stlx index` = scan + resolve):
+  - After the scan, every collection with a source listed or removed is resolved again, plus any collection never
+    resolved.
+  - Resolved rows of collections with no sources left are dropped.
+  - The resolver is a faithful port of the prototype, with all 47 prototype tests ported. See
+    [`archive-patterns.md`].
+
+### Views
+
+Both views are built in memory from the DB (`views.rs` loads the rows, `stl-core::vtree` builds the tree). See
+[`virtual-tree.md`] for the layout and the naming rules. `stlx tree models|files [<path>] [--depth N] [--real]`
+prints either view.
 
 ## Decisions
 
@@ -121,6 +152,29 @@ Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Wi
 - **`locked` flags on sources and entries** (schema v3) mark password-protected archives.
 - **Panics are caught.** The release build uses `panic = "unwind"`, so a crash inside an archive library becomes an
   error on that archive instead of closing the app.
+- *Added in milestone 3:*
+  - **Resolution unit: (root, collection).** Two different roots can't mix their files in one resolve. Two roots with
+    the same volume name still show one shared collection folder in the Models view, where clashing models get
+    `_N`.
+  - **Merge or number, by node kind:**
+    - Folders merge only when they are really the same folder: case variants, or an added folder inside another one.
+      Model variant and part folders also merge by name, as in the prototype.
+    - Every other clash gets `_1`/`_2`, for example `X.zip`, `x.rar` and a folder `x/` side by side.
+    - Groups and models are never merged. Models first get the edition or raw name in brackets, then `_N`.
+  - **A root inside another root** gets its own volume, which shows the content of its folder in the outer volume. In
+    the Models view, if the resolver has collapsed that folder, the volume lists the topmost items below it instead.
+  - **Hover for synthetic folders.**
+    - A model's hover is the common folder of its files. Pictures attached from outside it are left out, otherwise
+      every model with a sidecar picture would hover as its whole collection.
+    - Groups, variants, parts, `images` and `docs` hover as the common folder of their children.
+  - **Password-protected archives in the Models view** are padlock items directly in their collection folder.
+  - **Node keys:**
+    - Collections, groups and models use `m:<collection>/<path>`.
+    - Variants use `<model key>#<variant>` and parts `<parent key>/<part>`.
+    - Leaves use the `f:<source path>|<entry path>` of their file. Disk folders use `f:<folder path>|`.
+  - **A drive root** (`D:\`) gets the volume name `D:`.
+  - **The `images` folder** of a model appears only if the model has a picture. The prototype also made an empty one for
+    models with only documents.
 
 ### Details of the new rules (confirmed)
 
@@ -164,17 +218,31 @@ From the milestone 2 review:
   - A DB from a newer app version opens without a warning.
 - **Missing tests:** Cyrillic paths end-to-end, multi-volume and solid RAR, and password-protected RAR (RAR fixtures
   can't be made without WinRAR; password-protected ZIP and 7Z are tested).
-- **Overlapping roots and drive-root volume names** (`D:\`). These are now covered by the new merge rule and get fixed
-  with it.
+
+From the milestone 3 review:
+
+- **Adding an outer root after an inner one** re-reads every archive, because the cache lookup filters on `root_id`.
+  It is correct, but slow on a big volume, and it has no test.
+- **Adding an outer root changes the resolution unit and the `m:` keys of the inner content.** All of Vol.1 becomes
+  one collection under `STL`. Nothing uses those keys yet, but tags and thumbnail choices will need keys that survive
+  this.
+- **Duplicate roots already in a v3 DB** (`D:\Models` and `d:\models\`) are never merged. New ones are refused.
+- **A source that keeps failing** makes its collection re-resolve on every run (about 0.1 s per collection).
+- **Missing indexes:** `sources(root_id, collection)` and `assets(group_id)`.
+- **`parse_name` compiles a regex on every call.**
+- **ASCII-only digit checks** (`is_digits`, the designer-tag test). Sources with no collection are skipped.
+- **The resolver merges same-stem archives** (`X.zip` + `x.rar`) into one model, as the prototype did. The
+  `x_1`/`x_2` rule applies only to the Files view.
 
 ## Working notes
 
 - Run all tests with `cargo test --workspace`. Run RAR against a real file with
   `STL_BROWSER_RAR_FIXTURE=<file.rar> cargo test -p stl-scan --test rar -- --ignored`.
-- Dev CLI: `cargo run --release -p stl-index --bin stlx -- add <dir> | scan | extract <entry_id> <out>`. Set
-  `STL_BROWSER_HOME` to keep test runs out of `~/.stl-browser`.
+- Dev CLI: `cargo run --release -p stl-index --bin stlx -- add <dir> | index | tree models|files [<path>] | parity
+  <prototype.db> | extract <entry_id> <out>`. Set `STL_BROWSER_HOME` to keep test runs out of `~/.stl-browser`.
 - `unrar_sys` doesn't link `advapi32`, so `stl-scan` links it explicitly.
 - unrar can't write to a temp file that is still open. Close the handle first (`NamedTempFile::into_temp_path`).
-- Shell heredocs in this environment mangle backslashes. Write source files with an editor.
+- Shell heredocs in this environment mangle backslashes, and shell quoting breaks on text with an apostrophe. Write
+  source files with an editor.
 - `D:\Models\Sci-Fi Collection Vol.1\.3d-model-library\` (`*_DO_NOT_DELETE.json`) belongs to another tool. Discovery
   skips dot-folders, so leave it alone.

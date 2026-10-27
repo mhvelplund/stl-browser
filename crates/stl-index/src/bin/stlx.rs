@@ -1,13 +1,16 @@
 //! Developer CLI over the index DB (`$STL_BROWSER_HOME` or `~/.stl-browser/index.db`).
 //!
 //!   stlx add <dir>                  register a folder as a root
-//!   stlx scan                       scan all roots, printing progress and stats
+//!   stlx index                      scan all roots and resolve changed collections
+//!   stlx tree models|files [<path>] [--depth N] [--real]   print a view
 //!   stlx extract <entry_id> <out>   extract one indexed file
+//!   stlx parity <prototype.db>      compare the resolved tables with the prototype's
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use stl_index::{db, paths, scanstore};
+use stl_core::vtree::{NodeId, NodeKind, is_file_kind};
+use stl_index::{db, parity, paths, resolvestore, scanstore, views};
 use stl_scan::extract::{SourceKind, extract_entry};
 use stl_scan::nested::ListOptions;
 
@@ -34,40 +37,27 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             let id = scanstore::add_root(&conn, &PathBuf::from(dir))?;
             println!("root {id}: {dir}");
         }
-        ["scan"] => {
-            let roots: Vec<(i64, String)> = {
-                let mut st = conn.prepare("SELECT id, path FROM roots ORDER BY id")?;
-                st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-                    .collect::<Result<_, _>>()?
-            };
-            for (id, path) in roots {
-                println!("== {path}");
-                let t = Instant::now();
-                let stats = scanstore::scan_root(
-                    &mut conn,
-                    id,
-                    &ListOptions::default(),
-                    &mut |p| match p {
-                        scanstore::Progress::Source { index, total, name } => {
-                            println!("  [{}/{total}] {name}", index + 1)
-                        }
-                        scanstore::Progress::Warning(w) => println!("  ! {w}"),
-                    },
-                )?;
-                println!(
-                    "  sources {} · listed {} · reused {} · removed {} · errors {} · locked {} ({:.1}s)",
-                    stats.sources,
-                    stats.listed,
-                    stats.reused,
-                    stats.removed,
-                    stats.errors,
-                    stats.locked,
-                    t.elapsed().as_secs_f64()
-                );
-            }
+        ["index"] => {
+            let t = Instant::now();
+            let stats = resolvestore::index_all(&mut conn, &ListOptions::default(), &mut |p| match p {
+                scanstore::Progress::Source { index, total, name } => println!("  [{}/{total}] {name}", index + 1),
+                scanstore::Progress::Warning(w) => println!("  ! {w}"),
+            })?;
+            let s = &stats.scan;
+            println!(
+                "sources {} · listed {} · reused {} · removed {} · errors {} · locked {}",
+                s.sources, s.listed, s.reused, s.removed, s.errors, s.locked
+            );
             let entries: i64 = conn.query_row("SELECT count(*) FROM entries", [], |r| r.get(0))?;
-            println!("entries in index: {entries}");
+            println!(
+                "resolved {} collections · {} models · {entries} entries ({:.1}s)",
+                stats.resolved,
+                stats.models,
+                t.elapsed().as_secs_f64()
+            );
         }
+        ["tree", view, rest @ ..] => tree(&conn, view, rest)?,
+        ["parity", proto] => parity(&conn, proto)?,
         ["extract", id, out] => {
             let (kind, path, chain): (String, String, String) = conn.query_row(
                 "SELECT s.kind, s.path, e.chain FROM entries e JOIN sources s ON s.id = e.source_id WHERE e.id = ?",
@@ -85,7 +75,100 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             println!("wrote {n} bytes to {out}");
         }
         _ => {
-            return Err("usage: stlx add <dir> | stlx scan | stlx extract <entry_id> <out>".into());
+            return Err(USAGE.into());
+        }
+    }
+    Ok(())
+}
+
+const USAGE: &str = "usage: stlx add <dir> | index | extract <entry_id> <out> | tree models|files [<path>] [--depth N] [--real] \
+                     | parity <prototype.db>";
+
+/// Compare our resolved tables with the prototype's DB (opened read-only, never migrated).
+fn parity(conn: &rusqlite::Connection, proto: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let p = rusqlite::Connection::open_with_flags(proto, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let (ours, theirs) = (parity::collection_stats(conn)?, parity::collection_stats(&p)?);
+    let colls: std::collections::BTreeSet<&String> = ours.keys().chain(theirs.keys()).collect();
+    let none = parity::Stats::default();
+    println!("{:58} {:>11} {:>9} {:>11} {:>11} {:>11}", "collection (ours/proto)", "models", "groups", "no own img", "no img/fb", "unattached");
+    let mut vols: std::collections::BTreeMap<&str, [(u64, u64); 5]> = Default::default();
+    let mut roles: std::collections::BTreeMap<String, (u64, u64)> = Default::default();
+    for c in colls {
+        let (a, b) = (ours.get(c).unwrap_or(&none), theirs.get(c).unwrap_or(&none));
+        let pairs = [
+            (a.models, b.models),
+            (a.groups, b.groups),
+            (a.no_own_image, b.no_own_image),
+            (a.no_image_or_fallback, b.no_image_or_fallback),
+            (a.unattached_images, b.unattached_images),
+        ];
+        let cell = |(x, y): (u64, u64)| format!("{}{x}/{y}", if x == y { " " } else { "≠" });
+        let name: String = c.chars().take(58).collect();
+        println!("{name:58} {:>11} {:>9} {:>11} {:>11} {:>11}", cell(pairs[0]), cell(pairs[1]), cell(pairs[2]), cell(pairs[3]), cell(pairs[4]));
+        let v = vols.entry(c.split('/').next().unwrap_or(c)).or_default();
+        for (t, (x, y)) in v.iter_mut().zip(pairs) {
+            (t.0, t.1) = (t.0 + x, t.1 + y);
+        }
+        for (role, n) in &a.assets_by_role {
+            roles.entry(role.clone()).or_default().0 += n;
+        }
+        for (role, n) in &b.assets_by_role {
+            roles.entry(role.clone()).or_default().1 += n;
+        }
+    }
+    println!();
+    for (vol, t) in &vols {
+        println!(
+            "{vol:58} models {}/{} · groups {}/{} · no own img {}/{} · no img/fb {}/{} · unattached {}/{}",
+            t[0].0, t[0].1, t[1].0, t[1].1, t[2].0, t[2].1, t[3].0, t[3].1, t[4].0, t[4].1
+        );
+    }
+    let roles: Vec<String> = roles.iter().map(|(r, (x, y))| format!("{r} {x}/{y}")).collect();
+    println!("assets by role (ours/proto): {}", roles.join(" · "));
+    println!();
+    let mut failed = 0;
+    for (name, _) in parity::SPOT_CHECKS {
+        let (x, y) = (parity::spot_value(conn, name)?, parity::spot_value(&p, name)?);
+        if parity::same_value(&x, &y) {
+            println!("PASS {name}: {x}");
+        } else {
+            failed += 1;
+            println!("FAIL {name}: ours={x} proto={y}");
+        }
+    }
+    println!("spot checks: {}/{} pass", parity::SPOT_CHECKS.len() - failed, parity::SPOT_CHECKS.len());
+    Ok(())
+}
+
+/// Print a view (or the subtree at `path`) as an indented list.
+fn tree(conn: &rusqlite::Connection, view: &str, args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+    let t = match view {
+        "models" => views::models_view(conn)?,
+        "files" => views::files_view(conn)?,
+        _ => return Err(USAGE.into()),
+    };
+    let (mut path, mut depth, mut real) = ("", usize::MAX, false);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match *a {
+            "--depth" => depth = it.next().ok_or(USAGE)?.parse()?,
+            "--real" => real = true,
+            p => path = p,
+        }
+    }
+    let start = t.find(path).ok_or_else(|| format!("no such path: {path}"))?;
+    let mut stack: Vec<(NodeId, usize)> = t.nodes[start].children.iter().rev().map(|&c| (c, 0)).collect();
+    while let Some((id, d)) = stack.pop() {
+        let n = &t.nodes[id];
+        let suffix = match n.kind {
+            NodeKind::Locked => " [locked]",
+            k if is_file_kind(k) => "",
+            _ => "/",
+        };
+        let hover = if real { format!("  ← {}", n.real.join(" | ")) } else { String::new() };
+        println!("{}{}{suffix}{hover}", "  ".repeat(d), n.name);
+        if d + 1 < depth {
+            stack.extend(n.children.iter().rev().map(|&c| (c, d + 1)));
         }
     }
     Ok(())

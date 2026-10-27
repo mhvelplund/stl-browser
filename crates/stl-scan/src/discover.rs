@@ -52,7 +52,7 @@ fn collection(vol: &str, top: &str) -> String {
 /// An unreadable folder or file below the root is skipped with a `warn` message (drive roots
 /// have `System Volume Information`, files can vanish mid-walk); an unreadable root is an error.
 pub fn discover(root: &Path, warn: &mut dyn FnMut(String)) -> io::Result<Vec<SourceInfo>> {
-    let vol = root.file_name().map_or_else(|| root.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
+    let vol = names::volume_name(&root.to_string_lossy());
     let mut archives = Vec::new();
     let mut loose: BTreeMap<String, Vec<(String, std::fs::Metadata)>> = BTreeMap::new();
     let walker = WalkDir::new(root)

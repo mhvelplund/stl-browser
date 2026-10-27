@@ -24,7 +24,9 @@ cargo test --workspace                                   # all Rust tests
 cargo test -p stl-scan --test nested                     # one integration test file
 cargo test -p stl-index --test db <name_filter>          # one test by name
 STL_BROWSER_RAR_FIXTURE=<some.rar> cargo test -p stl-scan --test rar -- --ignored   # RAR test, needs a real file
-cargo run --release -p stl-index --bin stlx -- add <dir> | scan | extract <entry_id> <out>   # dev CLI
+cargo run --release -p stl-index --bin stlx -- add <dir> | index | extract <entry_id> <out>   # dev CLI
+cargo run --release -p stl-index --bin stlx -- tree models|files [<path>] [--depth N] [--real]  # print a view
+cargo run --release -p stl-index --bin stlx -- parity <prototype.db>   # compare resolved tables with the prototype
 npm --prefix app run tauri dev                           # launch the app
 npm --prefix app run check                               # svelte-check (UI type check)
 ```
@@ -35,18 +37,22 @@ Set `STL_BROWSER_HOME=<scratch dir>` for `stlx` and test runs so they don't touc
 
 Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the core:
 
-- `crates/stl-core`: pure logic, no I/O. File kinds, name helpers; the resolver and virtual tree go here.
+- `crates/stl-core`: pure logic, no I/O. `names.rs` (file kinds, name heuristics); `resolve/` (the model resolver, a
+  faithful port of the prototype: physical/logical trees, model detection, asset attachment, unit collapse);
+  `vtree/` (the tree type, naming rules and hover paths, `models.rs` and `files.rs` view builders fed by row structs).
 - `crates/stl-scan`: archive access. `archive.rs` puts ZIP/7Z/RAR behind one `Archive` trait (`open`); `nested.rs` lists
   archives recursively (max 3 deep, >256 MiB or anything nested in a RAR spills to a temp file); `extract.rs` re-opens a
   file by its `chain` of archive members; `discover.rs` walks a root and emits one source per archive plus one per
   top-level folder with loose files.
 - `crates/stl-index`: `~/.stl-browser/index.db` (SQLite, WAL). `db.rs` holds schema + migrations; `scanstore.rs` holds
   `add_root` / `scan_root` (incremental rescan by size, mtime and folder file-name fingerprint; errored sources retried;
-  vanished sources deleted). `bin/stlx.rs` is the dev CLI.
+  vanished sources deleted; a root inside another root is skipped); `resolvestore.rs` holds `index_all` (scan, then
+  re-resolve changed collections per (root, collection)); `views.rs` loads rows and builds both views (inner roots
+  become alias volumes); `parity.rs` backs `stlx parity`. `bin/stlx.rs` is the dev CLI.
 - `app/src-tauri`: Tauri shell (`lib.rs` setup, `state.rs`, `commands.rs`). `app/src/routes/+page.svelte`: SvelteKit UI
   with the static adapter.
-- `prototype/`: Python reference implementation of the resolver (`stlindex/names.py`, `resolve.py`, `vtree.py`) and its
-  tests. Not built or shipped; it is the porting reference for milestone 3 and is to be deleted once parity holds.
+- The Python prototype (the resolver's porting reference) was deleted after parity held in milestone 3. It is still in
+  git history, and its tests live on as `crates/stl-core/tests/{names,resolve,vtree_models}.rs`.
 
 DB tables split into **cached listings** (`roots`, `sources`, `entries`; rebuildable) and **user data** (`settings`,
 `selected_thumb`, `tags`, `node_tags`; never rebuilt, keyed by stable path strings, never row ids). Resolved tables

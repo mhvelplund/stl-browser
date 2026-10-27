@@ -5,7 +5,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, Result, params};
 
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 4;
 
 const V1: &str = "
 CREATE TABLE roots(
@@ -35,8 +35,30 @@ ALTER TABLE sources ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE entries ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
 ";
 
+/// v4: resolved tables, rebuilt per (root, collection) and never holding user data. `resolved`
+/// marks the units that have been resolved since their sources last changed.
+const V4: &str = "
+CREATE TABLE groups(id INTEGER PRIMARY KEY, root_id INTEGER NOT NULL, collection TEXT NOT NULL, parent_id INTEGER,
+    name TEXT, raw_name TEXT, path TEXT, attrs TEXT);
+CREATE TABLE models(id INTEGER PRIMARY KEY, root_id INTEGER NOT NULL, collection TEXT NOT NULL, source_id INTEGER,
+    group_id INTEGER, name TEXT, raw_name TEXT, path TEXT, breadcrumb TEXT, catalog_id TEXT, designer TEXT,
+    edition TEXT, attrs TEXT, variants TEXT, part_groups TEXT, file_count INTEGER, image_count INTEGER,
+    hero_asset_id INTEGER, hero_fallback_asset_id INTEGER);
+CREATE TABLE model_files(id INTEGER PRIMARY KEY, model_id INTEGER NOT NULL, entry_id INTEGER NOT NULL,
+    name TEXT, kind TEXT, part_group TEXT, variant TEXT);
+CREATE TABLE assets(id INTEGER PRIMARY KEY, root_id INTEGER NOT NULL, collection TEXT NOT NULL, source_id INTEGER,
+    model_id INTEGER, group_id INTEGER, entry_id INTEGER NOT NULL, name TEXT, kind TEXT, role TEXT, match TEXT,
+    rank INTEGER);
+CREATE TABLE resolved(root_id INTEGER NOT NULL, collection TEXT NOT NULL, PRIMARY KEY(root_id, collection));
+CREATE INDEX groups_coll ON groups(root_id, collection);
+CREATE INDEX models_coll ON models(root_id, collection);
+CREATE INDEX model_files_model ON model_files(model_id);
+CREATE INDEX assets_model ON assets(model_id);
+CREATE INDEX assets_coll ON assets(root_id, collection);
+";
+
 /// Migration steps; `MIGRATIONS[i]` takes the schema from version `i` to `i + 1`.
-const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3];
+const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4];
 
 /// Open (creating if needed) the index DB and bring its schema up to date.
 pub fn open(path: &Path) -> Result<Connection> {
