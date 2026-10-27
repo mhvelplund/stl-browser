@@ -3576,8 +3576,10 @@ version = "0.1.0"
 dependencies = [
  "dirs 6.0.0",
  "filetime",
+ "indexmap 2.14.2",
  "rusqlite",
  "serde_json",
+ "stl-core",
  "stl-scan",
  "tempfile",
  "thiserror 2.0.21",

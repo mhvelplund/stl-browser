@@ -527,6 +527,13 @@ pub fn parenthetical_tags(name: &str) -> Vec<String> {
     PAREN_TAG.captures_iter(name).map(|c| c[1].to_string()).collect()
 }
 
+/// The volume name of an added folder: its last path component, or `D:` for a drive root.
+pub fn volume_name(path: &str) -> String {
+    let trimmed = path.trim_end_matches(['\\', '/']);
+    let last = basename(trimmed);
+    if last.is_empty() { path.to_string() } else { last.to_string() }
+}
+
 /// Archive display name: the stem without a `.part1`/`.part01`/`.part001` suffix.
 pub fn archive_stem(file_name: &str) -> String {
     let s = stem(file_name);
@@ -580,6 +587,13 @@ mod tests {
     fn normalize_punctuation() {
         assert_eq!(normalize("Foo_Bar-Baz  (1)"), "foo bar baz 1");
         assert_eq!(normalize("ГОБЛИНЫ_воин"), "гоблины воин");
+    }
+
+    #[test]
+    fn volume_name_of_drive_root() {
+        assert_eq!(volume_name("D:\\"), "D:");
+        assert_eq!(volume_name("D:\\Models\\"), "Models");
+        assert_eq!(volume_name("D:\\Models\\Vol.1"), "Vol.1");
     }
 
     #[test]
