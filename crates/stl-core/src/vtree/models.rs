@@ -183,7 +183,12 @@ pub fn build_models(input: &ModelsInput, with_files: bool) -> Tree {
         };
         let id = b.t.add(parent, &m.name, NodeKind::Model);
         let (mf, ma) = (files.remove(&m.id).unwrap_or_default(), assets.remove(&m.id).unwrap_or_default());
-        let dirs: Vec<&str> = mf.iter().map(|f| parent_real(&f.real)).chain(ma.iter().map(|a| parent_real(&a.real))).collect();
+        // the folder of its files; pictures attached from outside it (sidecars, group images)
+        // would widen it to the collection
+        let mut dirs: Vec<&str> = mf.iter().map(|f| parent_real(&f.real)).collect();
+        if dirs.is_empty() {
+            dirs = ma.iter().map(|a| parent_real(&a.real)).collect();
+        }
         let n = &mut b.t.nodes[id];
         n.key = format!("m:{}/{}", m.collection, m.path);
         if !dirs.is_empty() {

@@ -190,3 +190,12 @@ fn model_hover_is_common_folder() {
     let t = build_models(&i, false);
     assert_eq!(t.nodes[at(&t, &format!("{COLL}/Elites/Sub/Acanthrites"))].real, [s("D:\\V\\A\\k.zip!K")]);
 }
+
+#[test]
+fn model_hover_ignores_sidecar_pictures_outside_its_folder() {
+    let mut i = input();
+    i.files = vec![FileRow { real: s("D:\\V\\A\\k.zip!K/a.stl"), ..file(3, 3, "a.stl", "model", "", "") }];
+    i.assets = vec![AssetRow { real: s("D:\\V\\A\\K.jpg"), ..asset(5, 3, 9, "K.jpg", "image", "preview") }];
+    let t = build_models(&i, true);
+    assert_eq!(t.nodes[at(&t, &format!("{COLL}/Elites/Sub/Acanthrites"))].real, [s("D:\\V\\A\\k.zip!K")]);
+}
