@@ -90,10 +90,21 @@ These are written by the resolver and rebuilt on every index, so user data never
   - The inner root still appears as its own volume, and its contents merge with the same folders in the outer one.
 - **Files whose lowercase names collide get a numbered postfix before the extension.** They are numbered in a stable
   order (by real path), starting at `_1`: `ORC.STL` and `Orc.stl` become `orc_1.stl` and `orc_2.stl`.
+- **Merge or number, by node kind** (as built in milestone 3):
+  - Folders merge only when they are the same folder. That means the same real path ignoring case, or an inner root.
+  - In the Models view, variant and part folders also merge by name inside one model.
+  - Anything else that clashes is numbered. For folders the postfix goes at the end: `X.zip`, `x.rar` and a folder `x/`
+    side by side become `x_1`, `x_2`, `x_3`.
+  - Groups and models never merge. Clashing models first get the edition or raw name in brackets, then `_N`.
+- **An inner root's volume** shows the children of the node whose real path is that root's folder. In the Models view,
+  if the resolver collapsed that folder, it lists the topmost nodes below it instead.
 - **Hovering over any element shows its real path.**
   - Windows separators are used up to the first archive, then `/` inside archives, with `!` at each archive boundary:
     `D:\Models\Vol.1\01. Studio Collection\Grimlax.rar!Grimlax/842_Spiderwalker.zip!842_Spiderwalker_Supported/body.stl`.
   - A merged folder lists each of its real paths, one per line.
+  - A folder that has no real path of its own (a model, group, variant, part, `images` or `docs`) shows the common
+    folder of what it holds. For a model, that is the common folder of its files: pictures attached from elsewhere
+    don't widen it.
 
 ## Oddities that will show up as strange folders
 
