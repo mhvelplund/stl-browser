@@ -24,6 +24,13 @@ commits it. Then `superpowers:writing-plans` turns each milestone below into a t
 - Drag-out uses **Windows virtual-file drag** (delayed rendering): files are extracted only when Explorer asks for
   them.
 - Index, thumbnails and user config (selected thumbnails; later tags) live in `~/.stl-browser/`.
+- *(Added after milestone 2; my reading of these rules is in `docs/index.md`.)*
+  - **Password-protected archives are not supported.** Don't scan them; show them as one item with a box-with-padlock
+    icon.
+  - **All file and folder names in the virtual file system are lowercase.** Overlapping folders merge their contents.
+    Colliding files get a numbered postfix (`ORC.STL` and `Orc.stl` become `orc_1.stl` and `orc_2.stl`).
+  - **Hovering over any element shows its real path**, with `!` marking each step into an archive
+    (`folder/example.zip!orcs/mech.zip!leg.stl`).
 
 **My calls (correct me if they're wrong):**
 - Thumbnail content hash: archive entries use the CRC32 + size stored in the archive header (no extraction needed to
