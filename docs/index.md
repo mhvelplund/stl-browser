@@ -11,8 +11,8 @@ anything out to Explorer to extract it.
 - Layout patterns, the model resolver, and the parity baseline: [`archive-patterns.md`]
 - The virtual folder tree, the two views, and the naming rules: [`virtual-tree.md`]
 - UI mockup (clickable): <https://claude.ai/artifact/Vum7b4yY5TjCBW1Csez2BH>
-- `prototype/` holds the Python prototype. Its code and tests are the reference for porting the resolver (milestone 3).
-  It is **not** part of the app, and nothing in it is built or shipped. Its notes have been folded into the pages above.
+- The Python prototype was the reference for the resolver port. Its tests live on as Rust tests in `crates/stl-core`.
+  After parity held, it was deleted in milestone 3, along with its DB. It is still in git history before that commit.
 
 [`superpowers/specs/2026-10-27-stl-browser-design.md`]: superpowers/specs/2026-10-27-stl-browser-design.md
 [`superpowers/plans/2026-10-27-skeleton-and-scan.md`]: superpowers/plans/2026-10-27-skeleton-and-scan.md
@@ -59,7 +59,6 @@ crates/stl-index/          app dir, SQLite schema + migrations, incremental scan
                            (resolvestore.rs), views from the DB (views.rs), prototype parity (parity.rs), `stlx` dev CLI
 app/src-tauri/             Tauri shell: state, commands
 app/src/                   SvelteKit UI (static adapter)
-prototype/                 reference only
 ```
 
 Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Windows OLE drag-out).
