@@ -61,6 +61,7 @@ pub fn open(input: ArchiveInput) -> Result<Box<dyn Archive>, ScanError> {
     match stl_core::names::ext(&name).as_str() {
         ".zip" => Ok(Box::new(ZipReader::new(&input)?)),
         ".7z" => Ok(Box::new(SevenZReader::new(&input)?)),
+        ".rar" => Ok(Box::new(RarReader::new(input)?)),
         e => Err(ScanError::Unsupported(format!("archive type '{e}' ({name})"))),
     }
 }
@@ -237,5 +238,106 @@ impl Archive for SevenZReader {
             return Err(e);
         }
         r.map_err(sevenz_err)
+    }
+}
+
+// ---- RAR ----
+
+/// The unrar library only reads files on disk, so `Bytes` input is written to a temp file first.
+/// Every operation reopens the archive and walks its headers in order.
+struct RarReader {
+    path: PathBuf,
+    _temp: Option<tempfile::NamedTempFile>,
+}
+
+fn rar_err(e: unrar::error::UnrarError) -> ScanError {
+    use unrar::error::Code as C;
+    match e.code {
+        C::MissingPassword | C::BadPassword => ScanError::Encrypted,
+        C::EOpen | C::ERead => ScanError::Io(std::io::Error::other(e.to_string())),
+        _ => ScanError::Format(e.to_string()),
+    }
+}
+
+impl RarReader {
+    fn new(input: ArchiveInput) -> Result<Self, ScanError> {
+        let (path, temp) = match input {
+            ArchiveInput::Path(p) => (p, None),
+            ArchiveInput::Bytes(b, _) => {
+                let mut t = tempfile::Builder::new().prefix("stl-browser-").suffix(".rar").tempfile()?;
+                t.write_all(&b)?;
+                t.flush()?;
+                (t.path().to_path_buf(), Some(t))
+            }
+        };
+        let r = Self { path, _temp: temp };
+        // Fail early (like the other readers) on a missing, corrupt or header-encrypted archive.
+        let open = unrar::Archive::new(&r.path).open_for_listing().map_err(rar_err)?;
+        if open.has_encrypted_headers() {
+            return Err(ScanError::Encrypted);
+        }
+        Ok(r)
+    }
+
+    /// Walk the archive once; `want` picks the entries to unpack and receives their bytes.
+    fn walk(&self, want: &mut dyn FnMut(&str) -> bool, got: &mut dyn FnMut(&str, Vec<u8>) -> Result<bool, ScanError>) -> Result<(), ScanError> {
+        let mut cursor = unrar::Archive::new(&self.path).open_for_processing().map_err(rar_err)?;
+        while let Some(header) = cursor.read_header().map_err(rar_err)? {
+            let name = header.entry().filename.to_string_lossy().into_owned();
+            if header.entry().is_file() && want(&name) {
+                if header.entry().is_encrypted() {
+                    return Err(ScanError::Encrypted);
+                }
+                let (data, next) = header.read().map_err(rar_err)?;
+                if !got(&name, data)? {
+                    return Ok(());
+                }
+                cursor = next;
+            } else {
+                cursor = header.skip().map_err(rar_err)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Archive for RarReader {
+    fn list(&mut self) -> Result<Vec<Member>, ScanError> {
+        let mut out = Vec::new();
+        for entry in unrar::Archive::new(&self.path).open_for_listing().map_err(rar_err)? {
+            let entry = entry.map_err(rar_err)?;
+            if !entry.is_file() {
+                continue;
+            }
+            let raw = entry.filename.to_string_lossy().into_owned();
+            out.push(Member { path: normalize_path(&raw), raw_name: raw, size: entry.unpacked_size, crc: crc_hex(entry.file_crc) });
+        }
+        Ok(out)
+    }
+
+    fn extract(&mut self, raw_name: &str, out: &mut dyn Write) -> Result<(), ScanError> {
+        let mut found = false;
+        self.walk(&mut |n| n == raw_name, &mut |_, data| {
+            out.write_all(&data)?;
+            found = true;
+            Ok(false)
+        })?;
+        if found { Ok(()) } else { Err(ScanError::Format(format!("no member '{raw_name}'"))) }
+    }
+
+    fn extract_many(
+        &mut self,
+        raw_names: &HashSet<String>,
+        f: &mut dyn FnMut(&str, &[u8]) -> Result<(), ScanError>,
+    ) -> Result<(), ScanError> {
+        let mut remaining = raw_names.len();
+        if remaining == 0 {
+            return Ok(());
+        }
+        self.walk(&mut |n| raw_names.contains(n), &mut |name, data| {
+            f(name, &data)?;
+            remaining -= 1;
+            Ok(remaining > 0)
+        })
     }
 }
