@@ -51,8 +51,8 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
   become alias volumes); `parity.rs` backs `stlx parity`. `bin/stlx.rs` is the dev CLI.
 - `app/src-tauri`: Tauri shell (`lib.rs` setup, `state.rs`, `commands.rs`). `app/src/routes/+page.svelte`: SvelteKit UI
   with the static adapter.
-- `prototype/`: Python reference implementation of the resolver (`stlindex/names.py`, `resolve.py`, `vtree.py`) and its
-  tests. Not built or shipped. Parity holds (milestone 3), so it is due for deletion once the user confirms.
+- The Python prototype (the resolver's porting reference) was deleted after parity held in milestone 3. It is still in
+  git history, and its tests live on as `crates/stl-core/tests/{names,resolve,vtree_models}.rs`.
 
 DB tables split into **cached listings** (`roots`, `sources`, `entries`; rebuildable) and **user data** (`settings`,
 `selected_thumb`, `tags`, `node_tags`; never rebuilt, keyed by stable path strings, never row ids). Resolved tables
