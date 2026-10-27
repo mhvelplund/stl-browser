@@ -5,7 +5,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, Result, params};
 
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 
 const V1: &str = "
 CREATE TABLE roots(
@@ -26,8 +26,11 @@ CREATE TABLE node_tags(
     PRIMARY KEY(node_key, tag_id));
 ";
 
+/// v2: folder sources remember a fingerprint of their file names (detects renames).
+const V2: &str = "ALTER TABLE sources ADD COLUMN fingerprint TEXT;";
+
 /// Migration steps; `MIGRATIONS[i]` takes the schema from version `i` to `i + 1`.
-const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1];
+const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2];
 
 /// Open (creating if needed) the index DB and bring its schema up to date.
 pub fn open(path: &Path) -> Result<Connection> {
@@ -46,7 +49,10 @@ pub fn open(path: &Path) -> Result<Connection> {
 }
 
 pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
-    conn.query_row("SELECT value FROM settings WHERE key = ?", [key], |r| r.get(0)).optional()
+    conn.query_row("SELECT value FROM settings WHERE key = ?", [key], |r| {
+        r.get(0)
+    })
+    .optional()
 }
 
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {

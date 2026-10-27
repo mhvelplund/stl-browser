@@ -28,6 +28,16 @@ pub struct SourceInfo {
     pub mtime: f64,
     /// Folder sources: file paths relative to `path`, `/`-separated.
     pub loose_files: Vec<String>,
+    /// Folder sources: hash of the sorted loose file names, so a rename (same size and mtime)
+    /// still counts as a change. `""` for archives.
+    pub fingerprint: String,
+}
+
+fn names_fingerprint(files: &[String]) -> String {
+    let mut sorted: Vec<&str> = files.iter().map(String::as_str).collect();
+    sorted.sort_unstable();
+    format!("{:08X}", crc32fast::hash(sorted.join("
+").as_bytes()))
 }
 
 fn mtime_of(meta: &std::fs::Metadata) -> f64 {
@@ -91,6 +101,7 @@ pub fn discover(root: &Path, warn: &mut dyn FnMut(String)) -> io::Result<Vec<Sou
                     size: meta.len(),
                     mtime: mtime_of(&meta),
                     loose_files: Vec::new(),
+                    fingerprint: String::new(),
                 });
             }
             Kind::Junk => {}
@@ -110,8 +121,12 @@ pub fn discover(root: &Path, warn: &mut dyn FnMut(String)) -> io::Result<Vec<Sou
             coll_path: String::new(),
             size: files.iter().map(|(_, m)| m.len()).sum(),
             mtime: files.iter().map(|(_, m)| mtime_of(m)).fold(0.0, f64::max),
-            loose_files: files.into_iter().map(|(rel, _)| if top.is_empty() { rel } else { rel[top.len() + 1..].to_string() }).collect(),
+            loose_files: Vec::new(),
+            fingerprint: String::new(),
         });
+        let src = out.last_mut().expect("just pushed");
+        src.loose_files = files.into_iter().map(|(rel, _)| if top.is_empty() { rel } else { rel[top.len() + 1..].to_string() }).collect();
+        src.fingerprint = names_fingerprint(&src.loose_files);
     }
     Ok(out)
 }

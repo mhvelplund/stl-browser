@@ -37,7 +37,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = AppState::open(dir.path().to_path_buf()).unwrap();
         let info = app_info_impl(&state).unwrap();
-        assert_eq!(info.schema_version, 1);
+        assert_eq!(info.schema_version, stl_index::db::SCHEMA_VERSION);
         assert!(info.db_path.ends_with("index.db"), "{}", info.db_path);
     }
 }

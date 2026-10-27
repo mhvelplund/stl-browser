@@ -7,7 +7,9 @@ pub const HOME_ENV: &str = "STL_BROWSER_HOME";
 pub fn app_dir() -> PathBuf {
     let dir = match std::env::var_os(HOME_ENV) {
         Some(p) => PathBuf::from(p),
-        None => dirs::home_dir().expect("no home directory").join(".stl-browser"),
+        None => dirs::home_dir()
+            .expect("no home directory")
+            .join(".stl-browser"),
     };
     std::fs::create_dir_all(&dir).expect("cannot create app dir");
     dir
