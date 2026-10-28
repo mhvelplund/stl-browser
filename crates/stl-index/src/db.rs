@@ -5,7 +5,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, Result, params};
 
-pub const SCHEMA_VERSION: i32 = 4;
+pub const SCHEMA_VERSION: i32 = 5;
 
 const V1: &str = "
 CREATE TABLE roots(
@@ -57,8 +57,15 @@ CREATE INDEX assets_model ON assets(model_id);
 CREATE INDEX assets_coll ON assets(root_id, collection);
 ";
 
+/// v5: thumbnail bookkeeping. A row goes with its entry, so a re-listed source drops stale ones;
+/// the cache files themselves can always be regenerated.
+const V5: &str = "
+CREATE TABLE thumbs(entry_id INTEGER PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE,
+    cache_rel TEXT, status TEXT NOT NULL, error TEXT);
+";
+
 /// Migration steps; `MIGRATIONS[i]` takes the schema from version `i` to `i + 1`.
-const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4];
+const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5];
 
 /// Open (creating if needed) the index DB and bring its schema up to date.
 pub fn open(path: &Path) -> Result<Connection> {
