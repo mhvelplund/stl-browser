@@ -78,9 +78,9 @@ pub fn extract_many_entries(
     current.extract_many(raw_names, f)
 }
 
-struct CountingWriter<'a> {
-    inner: &'a mut dyn Write,
-    n: u64,
+pub(crate) struct CountingWriter<'a> {
+    pub(crate) inner: &'a mut dyn Write,
+    pub(crate) n: u64,
 }
 
 impl Write for CountingWriter<'_> {

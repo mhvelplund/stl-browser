@@ -58,6 +58,25 @@ export type IndexDone = {
   seconds: number;
 };
 
+export type ExtractProgress = { index: number; total: number; name: string };
+
+export type ExtractDone = {
+  ok: boolean;
+  error: string | null;
+  files: number;
+  dirs: number;
+  /** Locked archives left out. */
+  skipped: number;
+  /** `[rel, error]` per file that could not be written. */
+  failed: [string, string][];
+  /** Where the first item went. */
+  dest: string;
+  seconds: number;
+};
+
+/** What a drag carries; `skipped` counts locked archives and paths too long for Explorer. */
+export type DragInfo = { files: number; skipped: number };
+
 export const listFolder = (view: View, path: string[]) => invoke<Listing>("list_folder", { view, path });
 export const status = () => invoke<Status>("status");
 export const addFolder = (path: string) => invoke<RootInfo>("add_folder", { path });
@@ -66,9 +85,17 @@ export const requestThumbs = (high: number[], low: number[]) =>
   invoke<{ ready: ThumbReady[]; pending: number }>("request_thumbs", { high, low });
 export const selectThumb = (nodeKey: string, imageKey: string) => invoke<void>("select_thumb", { nodeKey, imageKey });
 
+export const beginDrag = (view: View, path: string[], names: string[]) => invoke<DragInfo>("begin_drag", { view, path, names });
+export const extractTo = (view: View, path: string[], names: string[], dest: string) =>
+  invoke<void>("extract_to", { view, path, names, dest });
+
 export const onIndexProgress = (cb: (p: IndexProgress) => void): Promise<UnlistenFn> =>
   listen<IndexProgress>("index-progress", (e) => cb(e.payload));
 export const onThumbReady = (cb: (r: ThumbReady) => void): Promise<UnlistenFn> =>
   listen<ThumbReady>("thumb-ready", (e) => cb(e.payload));
+export const onExtractProgress = (cb: (p: ExtractProgress) => void): Promise<UnlistenFn> =>
+  listen<ExtractProgress>("extract-progress", (e) => cb(e.payload));
+export const onExtractDone = (cb: (d: ExtractDone) => void): Promise<UnlistenFn> =>
+  listen<ExtractDone>("extract-done", (e) => cb(e.payload));
 export const onIndexDone = (cb: (d: IndexDone) => void): Promise<UnlistenFn> =>
   listen<IndexDone>("index-done", (e) => cb(e.payload));

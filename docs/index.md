@@ -8,7 +8,8 @@ anything out to Explorer to extract it.
 - Full design: [`superpowers/specs/2026-10-27-stl-browser-design.md`]
 - Implementation plans: [`superpowers/plans/2026-10-27-skeleton-and-scan.md`] (milestones 1–2),
   [`superpowers/plans/2026-10-27-resolve.md`] (milestone 3), `superpowers/plans/2026-10-27-browse-ui.md`
-  (milestone 4) and `superpowers/plans/2026-10-28-thumbnails.md` (milestone 5). The last two are git-ignored.
+  (milestone 4), `superpowers/plans/2026-10-28-thumbnails.md` (milestone 5) and
+  `superpowers/plans/2026-10-28-drag-out.md` (milestone 6). The last three are git-ignored.
 - Layout patterns, the model resolver, and the parity baseline: [`archive-patterns.md`]
 - The virtual folder tree, the two views, and the naming rules: [`virtual-tree.md`]
 - UI mockup (clickable): <https://claude.ai/artifact/Vum7b4yY5TjCBW1Csez2BH>
@@ -30,7 +31,7 @@ anything out to Explorer to extract it.
 | 3. Resolve: port of the prototype's model resolver and virtual tree                          | done                                          |
 | 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                      | done                                          |
 | 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | done                                          |
-| 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | next                                          |
+| 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | done (a real mouse drag is still unchecked)   |
 | 7. Tags, search, filters                                                                     | later (only the database tables exist so far) |
 
 Milestones 1–2 were checked against the real `D:\STL\Warhammer 40K Collection Vol.1`. The scan found 45 sources and
@@ -61,6 +62,22 @@ Milestone 5 was smoke-tested the same way on Vol.1 + Vol.2:
 - **Cache:** deleting `thumbs/` while the app runs regenerates on reopen.
 - **Status bar:** the queue counts down to "up to date".
 
+Milestone 6 was checked on Vol.1 without a mouse:
+
+- **The spike** proved the risky part first. A data object living in the MTA, used on an STA through a marshaled proxy
+  and dropped on the shell's own drop target for a folder, is copied asynchronously. `GetData` is called on a COM
+  worker thread, not on the STA.
+- **Extract to…** (driven over CDP in `tauri dev`) wrote two of Ghamak's models: `ancient sarcophagus` (65 files,
+  straight from the RAR) and `hoplites of light e` (4 files, about 95 MB, from a zip inside the RAR). Both trees match
+  `stlx tree models … --real` exactly.
+- **The drag pipeline on real data.** `drag_real_item_to_shell_folder` (an opt-in test) drops the same two models on the
+  shell's drop target. They copy in 1.3 s and 5.3 s, with every file at its indexed size.
+- **`begin_drag` with no button held** returns at once and starts no drag.
+- **Not checked yet:**
+  - a real mouse drag from the window to Explorer (how WebView2 and `DoDragDrop` interact);
+  - pressing Escape during a drag;
+  - the context menu, by hand.
+
 ## Architecture
 
 ```text
@@ -71,17 +88,48 @@ crates/stl-scan/           archive readers (ZIP, 7Z, RAR behind one trait), nest
 crates/stl-thumb/          thumbnails: cache names (cache.rs), image scaling + JPEG (image.rs), STL/OBJ loading
                            (mesh.rs), the CPU rasterizer (raster.rs), batches read in one archive pass (generate.rs),
                            the priority job queue (queue.rs); `examples/thumb.rs` renders one local file to PNG
+crates/stl-drag/           Windows only: the OLE virtual-file data object (data.rs), streams over delete-on-close temp
+                           files (stream.rs), the drop source (source.rs); `prepare` (MTA) and `run_drag` (STA)
 crates/stl-index/          app dir, SQLite schema + migrations, incremental scans (scanstore.rs), per-collection resolve
                            (resolvestore.rs), views from the DB (views.rs), thumbnail rows (thumbstore.rs), prototype
-                           parity (parity.rs), `stlx` dev CLI
+                           parity (parity.rs), export plans located and written to a folder (export.rs), `stlx` dev CLI
 app/src-tauri/             Tauri shell: state (DB + cached views + busy flag + thumbnail service), commands,
                            browse.rs (listings and carousels), indexer.rs (background index runs), thumbs.rs
-                           (thumbnail requests, workers, `thumb-ready`, the `thumb` protocol)
+                           (thumbnail requests, workers, `thumb-ready`, the `thumb` protocol), export.rs
+                           (`begin_drag`, `extract_to`)
 app/src/                   SvelteKit UI (static adapter): routes/+page.svelte plus components and pure logic
                            modules (grid, nav, items, indexrun, carousel) in lib/, tested with `node --test`
 ```
 
-Planned crate: `stl-drag` (Windows OLE drag-out).
+Two smaller modules came with milestone 6:
+
+- `stl-core::vtree::export` builds the export plan: which folders and files a drag writes, under Windows-safe names.
+- `stl-scan::session` extracts many files one by one and keeps the nested archives open between them.
+
+### Drag-out and Extract to… (milestone 6)
+
+- **Gesture:** pressing a tile and moving 6 px with the primary button held calls `begin_drag(view, path, [name])`.
+  - Rust builds the export plan, locates every file (source, chain, size) and prepares the data object.
+  - It then runs `DoDragDrop` on the main thread through `run_on_main_thread`.
+  - If the button is already up by then, no drag starts.
+- **The data object** offers three formats:
+  - `CFSTR_FILEDESCRIPTORW`: one descriptor per folder and per file, with paths that mirror the current view;
+  - `CFSTR_FILECONTENTS`: one stream per file, extracted only when Explorer asks for it;
+  - `CFSTR_PREFERREDDROPEFFECT`: copy.
+
+  It also implements `IDataObjectAsyncCapability`, so Explorer copies on its own thread, with its own progress dialog.
+- **Threads:** the object is created in the MTA, which `CoIncrementMTAUsage` keeps alive. `DoDragDrop` gets a marshaled
+  proxy, so Explorer's calls go straight to the MTA and extraction never runs on the UI thread.
+- **Streams** are delete-on-close temp files. No file is held in memory, and nothing is left behind after a crash.
+- **Extraction** goes through one `ExtractSession` per drag, or per Extract to…:
+  - It keeps the stack of open archives, so files from the same nested archive in a row don't reopen it.
+  - A panic in an archive reader fails only that one file.
+- **Right-click** on a tile offers **Open** and **Extract to…**.
+  - Extract to… writes the same tree into a chosen folder, on a background thread (`extract-progress`,
+    `extract-done`).
+  - A top-level name that already exists there becomes `name (2)`, so nothing is overwritten.
+  - Files are written as `.part` and renamed when complete.
+  - A file that fails is reported, and the rest are still written.
 
 ### Data on disk: `~/.stl-browser/`
 
@@ -195,6 +243,30 @@ prints either view.
 - **`locked` flags on sources and entries** (schema v3) mark password-protected archives.
 - **Panics are caught.** The release build uses `panic = "unwind"`, so a crash inside an archive library becomes an
   error on that archive instead of closing the app.
+- *Added in milestone 6:*
+  - **A drag writes the tree as the view shows it**, with lowercase names and the `_N` clash names. The Files view
+    takes only its visible items (folders, images and mesh files). The Models view also takes `docs`.
+  - **Windows-safe names:**
+    - `< > : " / \ | ? *` and control characters become `_`.
+    - Trailing dots and spaces are dropped.
+    - Device names (`con`, `com1.stl`) get a leading `_`.
+    - Names that clash after this get `_2`, `_3`.
+  - **Locked archives are left out** of drags and extractions, and counted as skipped.
+  - **Explorer copies exactly the declared size** (measured). It cuts a file short when the size given is too small, and
+    stops at the end of the stream when it is too big. So in a drag, a file without a size, or longer than its indexed
+    size (a stale index), fails rather than being truncated.
+  - **Paths over 259 characters** don't fit in a file descriptor. They are left out of a drag, and the UI says how many.
+    Extract to… still writes them.
+  - **One Extract to… at a time.** A second one is refused while the first runs.
+  - **No drag or Extract to… during an index run.** A run re-lists sources and reuses entry ids before the views are
+    rebuilt, so a plan made then could name the wrong file. Both are refused with a message until the run ends.
+  - **7z and RAR levels are read in one pass.** Those readers decode from the start of the archive for every member, so
+    file-by-file extraction is quadratic.
+    - Extract to… writes all the files of one 7z/RAR level from one pass.
+    - A drag reads the level on the first request into it. It keeps the other files from that level in delete-on-close
+      temp files, up to 2 GiB, and serves Explorer's later requests from them.
+    - Zip members and loose files are read directly.
+  - **Results** (an extraction finished, items left out of a drag) stay in the status bar until the next selection.
 - *Added in milestone 5:*
   - **The queue replaces, it doesn't append.** Each request sends what is on screen (high) and the rest of the folder
     (low), replacing whatever was queued, so a folder you left doesn't keep the workers busy. Jobs from one archive run
@@ -340,16 +412,44 @@ From the milestone 5 review:
 - **Not smoke-checked:** thumbnails in the light theme, OBJ files from real data, and padlock tiles next to
   thumbnails.
 
+From the milestone 6 review:
+
+- **A real mouse drag to Explorer has not been tried.** Still unchecked: how WebView2 and `DoDragDrop` interact, a
+  stuck pressed state after the drag, the app staying responsive during a long copy, and Escape.
+- **Extract to… may act on the wrong folder.** It reads the current folder after the folder picker returns. Backspace
+  with the context menu open also navigates. Either way it can use another folder (usually giving "no longer exists").
+- **The status line lists every failed file.** A source deleted since indexing can fill it with thousands of entries.
+- **Extract to… can't be cancelled.** Closing the app mid-way leaves `.part` files.
+- **The app never learns how a drag ended.** A file that fails shows only in Explorer's own error dialog.
+- **Stream edge cases:**
+  - `IStream::Read` doesn't check for a null buffer.
+  - `CopyTo` drops bytes if the target accepts a short write.
+- **Large drags:**
+  - The descriptor block is rebuilt on every `GetData`, which costs about 60 MB per call at 100k files.
+  - Drag streams are staged in `%TEMP%`, so a file bigger than the free space on C: fails.
+- **Reserved names:** `conin$`, `conout$` and the superscript `com¹` / `lpt¹` device names are not escaped.
+- **A tiny race:** a button release between the button check and `DoDragDrop` drops onto whatever is under the cursor.
+- **No drag image:** the drag shows only the cursor, with no ghost thumbnail.
+- **Swapped mouse buttons** have not been tested with the OLE key state.
+
 ## Working notes
 
 - Run all tests with `cargo test --workspace`, `npm --prefix app test` and `npm --prefix app run check`.
 - To drive the running app from a script, start it with
   `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and talk CDP to `http://127.0.0.1:9222/json`.
+- Check the drag pipeline on real data without a mouse:
+  - Point `STL_BROWSER_HOME` at an indexed home and set `STL_BROWSER_DRAG_CHECK="models|<folder path>|<name>"`.
+  - Run `cargo test -p app --lib drag_real -- --ignored --nocapture`.
+  - It drops the item on the shell's drop target for a temp folder.
 - Run RAR against a real file with
   `STL_BROWSER_RAR_FIXTURE=<file.rar> cargo test -p stl-scan --test rar -- --ignored`.
 - Dev CLI: `cargo run --release -p stl-index --bin stlx -- add <dir> | index | tree models|files [<path>] | parity
   <prototype.db> | extract <entry_id> <out>`. Set `STL_BROWSER_HOME` to keep test runs out of `~/.stl-browser`.
 - `unrar_sys` doesn't link `advapi32`, so `stl-scan` links it explicitly.
+- Two COM gotchas from milestone 6:
+  - `FILEDESCRIPTORW` is packed: build one, then copy it in with `write_unaligned`.
+  - `CoGetInterfaceAndReleaseStream` releases the stream itself, so hold it in `ManuallyDrop`.
+- Editing `app/src-tauri/Cargo.toml` while `tauri dev` runs starts a rebuild, which fails because `app.exe` is locked.
 - unrar can't write to a temp file that is still open. Close the handle first (`NamedTempFile::into_temp_path`).
 - Shell heredocs in this environment mangle backslashes, and shell quoting breaks on text with an apostrophe. Write
   source files with an editor.

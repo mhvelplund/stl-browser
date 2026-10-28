@@ -4,7 +4,9 @@
   import { SvelteMap } from "svelte/reactivity";
   import { open as pickFolder } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
-  import type { IndexDone, IndexProgress, Item, Listing, Status, View } from "$lib/api";
+  import type { ExtractProgress, IndexDone, IndexProgress, Item, Listing, Status, View } from "$lib/api";
+  import ContextMenu, { type Entry } from "$lib/ContextMenu.svelte";
+  import { extractHint } from "$lib/extractrun";
   import { requests, slotKey, slots } from "$lib/carousel";
   import { idle, step, type Run, type RunEvent } from "$lib/indexrun";
   import { folderSummary } from "$lib/items";
@@ -32,6 +34,11 @@
   /** Carousel slots picked in this listing, by item key. */
   const chosen = new SvelteMap<string, number>();
   let thumbPending = $state(0);
+  /** The right-click menu, if open. */
+  let menu = $state<{ x: number; y: number; entries: Entry[] } | null>(null);
+  let extracting = $state<ExtractProgress | null>(null);
+  /** A result to show in the status bar until the next selection. */
+  let notice = $state("");
   let visible = { first: 0, last: 0 };
   let thumbTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -129,6 +136,47 @@
 
   const rescan = () => startRun("Rescanning all folders…", api.rescan);
 
+  function select(i: Item) {
+    selected = i.name;
+    notice = "";
+  }
+
+  /** Drag a tile out to Explorer: Rust runs the OLE drag on the main thread. */
+  async function dragOut(item: Item) {
+    select(item);
+    try {
+      const info = await api.beginDrag(view, nav.path, [item.name]);
+      if (info.skipped) notice = `${info.skipped} item${info.skipped === 1 ? "" : "s"} left out of the drag (locked, or path too long)`;
+    } catch (e) {
+      notice = `Could not drag: ${e}`;
+    }
+  }
+
+  async function extract(item: Item) {
+    let dest: string | string[] | null;
+    try {
+      dest = await pickFolder({ directory: true, multiple: false, title: `Extract ${item.name} to` });
+    } catch (e) {
+      notice = `Could not open the folder picker: ${e}`;
+      return;
+    }
+    if (typeof dest !== "string") return;
+    try {
+      extracting = { index: 0, total: 0, name: item.name };
+      await api.extractTo(view, nav.path, [item.name], dest);
+    } catch (e) {
+      extracting = null;
+      notice = `Could not extract: ${e}`;
+    }
+  }
+
+  function showMenu(item: Item, x: number, y: number) {
+    const entries: Entry[] = [];
+    if (item.openable) entries.push({ label: "Open", action: () => openItem(item) });
+    if (item.kind !== "locked") entries.push({ label: "Extract to…", action: () => extract(item) });
+    menu = entries.length ? { x, y, entries } : null;
+  }
+
   function done(d: IndexDone) {
     progress = null;
     apply({ type: "done", done: d });
@@ -150,13 +198,18 @@
   }
 
   const selectedItem = $derived(listing?.items.find((i) => i.name === selected) ?? null);
-  const footerHint = $derived(selectedItem ? selectedItem.real.join(" | ") : run.hint || usage);
+  const footerHint = $derived(notice || (selectedItem ? selectedItem.real.join(" | ") : run.hint || usage));
   const noRoots = $derived(status !== null && status.roots.length === 0);
 
   onMount(() => {
     const unlisten = [
       api.onIndexProgress((p) => (progress = p)),
       api.onIndexDone(done),
+      api.onExtractProgress((p) => (extracting = p)),
+      api.onExtractDone((d) => {
+        extracting = null;
+        notice = extractHint(d);
+      }),
       api.onThumbReady((r) => {
         urls.set(r.entryId, r.url);
         thumbPending = r.pending;
@@ -204,9 +257,14 @@
           {view}
           {selected}
           scroll={restore}
-          onSelect={(i) => (selected = i.name)}
+          onSelect={select}
           onOpen={openItem}
-          onScroll={(t) => (scroll = t)}
+          onScroll={(t) => {
+            scroll = t;
+            menu = null;
+          }}
+          onDragOut={dragOut}
+          onMenu={showMenu}
           {urls}
           {chosen}
           onSlot={pickSlot}
@@ -220,8 +278,11 @@
       {/if}
     {/if}
   </main>
-  <StatusBar {status} hint={footerHint} {progress} {thumbPending} />
+  <StatusBar {status} hint={footerHint} {progress} {thumbPending} extract={extracting} />
 </div>
+{#if menu}
+  <ContextMenu x={menu.x} y={menu.y} entries={menu.entries} onClose={() => (menu = null)} />
+{/if}
 
 <style>
   .app {
