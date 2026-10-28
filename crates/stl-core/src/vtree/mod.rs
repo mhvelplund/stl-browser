@@ -1,6 +1,7 @@
 //! The virtual folder tree shown by both views, and the naming rules they share: lowercase
 //! names, `_N` postfixes for clashes, hover (real) paths with `!` at archive boundaries.
 //! See `docs/virtual-tree.md`.
+pub mod export;
 pub mod files;
 pub mod models;
 
@@ -260,7 +261,7 @@ pub fn counts(t: &Tree) -> Vec<Counts> {
 }
 
 /// `orc.stl` → `orc_2.stl` for files, `orc` → `orc_2` for folders.
-fn numbered(name: &str, n: usize, file: bool) -> String {
+pub(crate) fn numbered(name: &str, n: usize, file: bool) -> String {
     if file {
         let stem = names::stem(name);
         format!("{stem}_{n}{}", &name[stem.len()..])
