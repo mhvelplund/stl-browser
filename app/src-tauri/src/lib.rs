@@ -34,7 +34,8 @@ pub fn run() {
             commands::list_folder,
             commands::status,
             commands::rescan,
-            commands::add_folder
+            commands::add_folder,
+            commands::select_thumb
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

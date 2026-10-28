@@ -81,6 +81,7 @@ dependencies = [
  "stl-core",
  "stl-index",
  "stl-scan",
+ "stl-thumb",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
