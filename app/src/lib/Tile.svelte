@@ -2,6 +2,7 @@
   import type { SvelteMap } from "svelte/reactivity";
   import type { Item, View } from "./api";
   import { slots, step } from "./carousel";
+  import { press, shouldStart, type Press } from "./dragstart";
   import { subtitle } from "./items";
   import TileArt from "./TileArt.svelte";
 
@@ -14,6 +15,8 @@
     onSelect,
     onOpen,
     onSlot,
+    onDragOut,
+    onMenu,
   }: {
     item: Item;
     view: View;
@@ -24,7 +27,25 @@
     onSelect: (i: Item) => void;
     onOpen: (i: Item) => void;
     onSlot: (i: Item, slot: number) => void;
+    /** The pointer dragged this tile far enough to start a drag out of the window. */
+    onDragOut: (i: Item) => void;
+    /** Right-click at client coordinates. */
+    onMenu: (i: Item, x: number, y: number) => void;
   } = $props();
+
+  let pressed: Press = null;
+
+  function pointerMove(e: PointerEvent) {
+    if (!shouldStart(pressed, e.clientX, e.clientY, e.buttons)) return;
+    pressed = null;
+    if (item.kind !== "locked") onDragOut(item);
+  }
+
+  function contextMenu(e: MouseEvent) {
+    e.preventDefault();
+    onSelect(item);
+    onMenu(item, e.clientX, e.clientY);
+  }
 
   const badge = $derived(item.badge ?? (item.kind === "model" ? "MODEL" : null));
   const all = $derived(slots(item));
@@ -53,6 +74,11 @@
     onclick={() => onSelect(item)}
     ondblclick={() => item.openable && onOpen(item)}
     onkeydown={key}
+    onpointerdown={(e) => (pressed = press({ button: e.button, x: e.clientX, y: e.clientY, pointerId: e.pointerId }))}
+    onpointermove={pointerMove}
+    onpointerup={() => (pressed = null)}
+    onpointercancel={() => (pressed = null)}
+    oncontextmenu={contextMenu}
   >
     <span class="art">
       <TileArt slot={all[slot] ?? null} {urls} kind={item.kind} fileKind={item.fileKind} />

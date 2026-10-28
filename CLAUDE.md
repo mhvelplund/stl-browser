@@ -24,6 +24,7 @@ cargo test --workspace                                   # all Rust tests
 cargo test -p stl-scan --test nested                     # one integration test file
 cargo test -p stl-index --test db <name_filter>          # one test by name
 STL_BROWSER_RAR_FIXTURE=<some.rar> cargo test -p stl-scan --test rar -- --ignored   # RAR test, needs a real file
+STL_BROWSER_DRAG_CHECK="models|<folder>|<name>" cargo test -p app --lib drag_real -- --ignored   # real-data drop; needs an indexed STL_BROWSER_HOME
 cargo run --release -p stl-index --bin stlx -- add <dir> | index | extract <entry_id> <out>   # dev CLI
 cargo run --release -p stl-index --bin stlx -- tree models|files [<path>] [--depth N] [--real]  # print a view
 cargo run --release -p stl-index --bin stlx -- parity <prototype.db>   # compare resolved tables with the prototype
@@ -48,15 +49,21 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
 - `crates/stl-thumb`: thumbnails. `cache.rs` (cache names), `image.rs` (scale within 256×256 + JPEG q80), `mesh.rs` (STL/OBJ),
   `raster.rs` (CPU z-buffer renderer), `generate.rs` (one archive pass per batch), `queue.rs` (two-level priority queue
   with replace semantics). Render one file by hand: `cargo run --release -p stl-thumb --example thumb -- <in> <out.png>`.
+- `crates/stl-drag`: Windows-only OLE drag-out.
+  - `data.rs` is the `IDataObject`: file descriptors, file contents written on request, async copy.
+  - `stream.rs` is an `IStream` over a delete-on-close temp file, and `source.rs` is the drop source.
+  - `prepare` creates the object in the MTA. `run_drag` runs `DoDragDrop` on the STA with a marshaled proxy, so
+    Explorer's calls never block the UI thread.
+  - `tests/drop.rs` drops on the shell's own drop target for a temp folder, so no mouse is needed.
 - `crates/stl-index`: `~/.stl-browser/index.db` (SQLite, WAL). `db.rs` holds schema + migrations; `scanstore.rs` holds
   `add_root` / `scan_root` (incremental rescan by size, mtime and folder file-name fingerprint; errored sources retried;
   vanished sources deleted; a root inside another root is skipped); `resolvestore.rs` holds `index_all` (scan, then
   re-resolve changed collections per (root, collection)); `views.rs` loads rows and builds both views (inner roots
   become alias volumes; heroes and posters get their entry); `thumbstore.rs` sorts thumbnail requests into ready,
-  failed and jobs; `parity.rs` backs `stlx parity`. `bin/stlx.rs` is the dev CLI.
+  failed and jobs; `export.rs` locates an export plan's files and writes them to a folder (Extract to…); `parity.rs` backs `stlx parity`. `bin/stlx.rs` is the dev CLI.
 - `app/src-tauri`: Tauri shell (`lib.rs` setup and the `thumb` protocol, `state.rs` with the cached view trees, the
   index busy flag and the thumbnail service, `commands.rs`, `browse.rs` for `list_folder` and carousel slots,
-  `indexer.rs` for background index runs, `thumbs.rs` for thumbnail requests, workers and `thumb-ready`).
+  `indexer.rs` for background index runs, `thumbs.rs` for thumbnail requests, workers and `thumb-ready`, `export.rs` for `begin_drag` and `extract_to`).
   `app/src/routes/+page.svelte` plus `app/src/lib/` (components, and pure `grid`/`nav`/`items`/`indexrun`/`carousel`
   modules with tests):
   SvelteKit UI with the static adapter.

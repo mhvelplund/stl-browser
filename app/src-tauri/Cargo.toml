@@ -31,5 +31,12 @@ stl-thumb = { path = "../../crates/stl-thumb" }
 rusqlite = "0.37"
 tauri-plugin-dialog = "2"
 
+[target.'cfg(windows)'.dependencies]
+stl-drag = { path = "../../crates/stl-drag" }
+
 [dev-dependencies]
 tempfile = "3"
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = "0.62.2"
+windows-core = "0.62.2"

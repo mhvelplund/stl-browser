@@ -19,6 +19,8 @@
     chosen,
     onSlot,
     onVisible,
+    onDragOut,
+    onMenu,
   }: {
     items: Item[];
     view: View;
@@ -34,6 +36,8 @@
     onSlot: (i: Item, slot: number) => void;
     /** The item index range that is rendered, `[first, last)`. */
     onVisible: (r: { first: number; last: number }) => void;
+    onDragOut: (i: Item) => void;
+    onMenu: (i: Item, x: number, y: number) => void;
   } = $props();
 
   const GAP = 8;
@@ -93,7 +97,7 @@
         style:height="{rowHeight - GAP}px"
       >
         {#each row.tiles as item (item.name)}
-          <Tile {item} {view} selected={selected === item.name} slot={current(item, chosen)} {urls} {onSelect} {onOpen} {onSlot} />
+          <Tile {item} {view} selected={selected === item.name} slot={current(item, chosen)} {urls} {onSelect} {onOpen} {onSlot} {onDragOut} {onMenu} />
         {/each}
       </div>
     {/each}

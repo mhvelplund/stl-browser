@@ -79,6 +79,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stl-core",
+ "stl-drag",
  "stl-index",
  "stl-scan",
  "stl-thumb",
@@ -87,6 +88,8 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tempfile",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]
@@ -3684,6 +3687,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "stl-drag"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "stl-index"
 version = "0.1.0"
 dependencies = [
@@ -3692,6 +3704,7 @@ dependencies = [
  "indexmap 2.14.2",
  "rusqlite",
  "serde_json",
+ "sevenz-rust2",
  "stl-core",
  "stl-scan",
  "stl-thumb",

@@ -1,5 +1,6 @@
 mod browse;
 mod commands;
+mod export;
 mod indexer;
 mod state;
 mod thumbs;
@@ -60,7 +61,9 @@ pub fn run() {
             commands::rescan,
             commands::add_folder,
             commands::select_thumb,
-            commands::request_thumbs
+            commands::request_thumbs,
+            export::begin_drag,
+            export::extract_to
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

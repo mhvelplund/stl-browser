@@ -34,6 +34,15 @@ pub struct Views {
     pub files: ViewTree,
 }
 
+impl Views {
+    pub fn get(&self, view: View) -> &ViewTree {
+        match view {
+            View::Models => &self.models,
+            View::Files => &self.files,
+        }
+    }
+}
+
 pub fn build_views(conn: &Connection) -> Result<Views, IndexError> {
     Ok(Views { models: ViewTree::new(models_view(conn)?), files: ViewTree::new(files_view(conn)?) })
 }
@@ -111,7 +120,7 @@ fn kind_name(kind: NodeKind) -> &'static str {
 }
 
 /// The Files view shows folders, images and object files only; the Models view shows all.
-fn visible(view: View, n: &Node) -> bool {
+pub(crate) fn visible(view: View, n: &Node) -> bool {
     view == View::Models
         || n.kind != NodeKind::File
         || matches!(n.info.file_kind.as_deref(), Some("model" | "scene" | "image"))
@@ -223,10 +232,7 @@ fn carousel(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> (Vec<Th
 /// List the deepest folder along `path` that exists. `selected` maps node keys to their saved
 /// carousel choice (an image key or `composite`).
 pub fn list(views: &Views, view: View, path: &[String], selected: &HashMap<String, String>) -> Listing {
-    let vt = match view {
-        View::Models => &views.models,
-        View::Files => &views.files,
-    };
+    let vt = views.get(view);
     let t = &vt.tree;
     let (id, used) = t.walk(path);
     let kids = |id: usize| t.nodes[id].children.iter().copied().filter(move |&c| visible(view, &t.nodes[c]));
