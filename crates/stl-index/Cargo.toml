@@ -12,8 +12,10 @@ stl-core = { path = "../stl-core" }
 stl-thumb = { path = "../stl-thumb" }
 indexmap = "2"
 thiserror = "2.0.21"
+tempfile = "3"
 
 [dev-dependencies]
+sevenz-rust2 = "0.24.1"
 filetime = "0.2.29"
 tempfile = "3"
 zip = "9.1.2"

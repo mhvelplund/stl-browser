@@ -5,6 +5,14 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
+pub fn sevenz(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut w = sevenz_rust2::ArchiveWriter::new(Cursor::new(Vec::new())).unwrap();
+    for (name, data) in files {
+        w.push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(name), Some(*data)).unwrap();
+    }
+    w.finish().unwrap().into_inner()
+}
+
 pub fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
     let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
     for (name, data) in files {
