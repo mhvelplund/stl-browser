@@ -153,20 +153,23 @@ pub struct DragInfo {
 mod drag {
     use std::sync::{Arc, Mutex};
 
-    use stl_index::export::{ExportFile, extract_caught};
-    use stl_scan::session::ExtractSession;
+    use stl_index::export::{ExportFile, FileServer};
 
-    /// A drag's files, extracted on Explorer's request through one session.
-    pub struct DragContents {
-        pub files: Vec<ExportFile>,
-        pub session: Mutex<ExtractSession>,
+    /// Temp-disk room for files read ahead from 7z and RAR archives during one drag.
+    const READ_AHEAD: u64 = 2 << 30;
+
+    /// A drag's files, extracted on Explorer's request.
+    pub struct DragContents(Mutex<FileServer>);
+
+    impl DragContents {
+        pub fn new(files: Vec<ExportFile>) -> Self {
+            DragContents(Mutex::new(FileServer::new(files, READ_AHEAD)))
+        }
     }
 
     impl stl_drag::Contents for DragContents {
         fn write(&self, index: usize, out: &mut dyn std::io::Write) -> Result<(), String> {
-            let loc = self.files.get(index).and_then(|f| f.loc.as_ref()).ok_or("the file is no longer in the index")?;
-            let mut session = self.session.lock().unwrap_or_else(|e| e.into_inner());
-            extract_caught(&mut session, loc, out).map(|_| ())
+            self.0.lock().unwrap_or_else(|e| e.into_inner()).write(index, out).map(|_| ())
         }
     }
 
@@ -179,7 +182,7 @@ mod drag {
 
     pub fn prepare(files: Vec<ExportFile>) -> Result<stl_drag::Prepared, String> {
         let items = descriptors(&files);
-        stl_drag::prepare(items, Arc::new(DragContents { files, session: Mutex::new(ExtractSession::new()) }))
+        stl_drag::prepare(items, Arc::new(DragContents::new(files)))
     }
 }
 
@@ -318,7 +321,7 @@ mod tests {
         assert_eq!(d[2].rel, "orc\\orc.stl");
         assert_eq!(d[2].size, Some(1));
         assert!(d[0].is_dir);
-        let c = drag::DragContents { files, session: Default::default() };
+        let c = drag::DragContents::new(files);
         let mut out = Vec::new();
         c.write(2, &mut out).unwrap();
         assert_eq!(out, b"o");

@@ -3704,6 +3704,7 @@ dependencies = [
  "indexmap 2.14.2",
  "rusqlite",
  "serde_json",
+ "sevenz-rust2",
  "stl-core",
  "stl-scan",
  "stl-thumb",
