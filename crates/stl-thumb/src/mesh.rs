@@ -20,8 +20,20 @@ pub fn load_mesh(name: &str, bytes: &[u8]) -> Result<Vec<Tri>, String> {
     Ok(tris)
 }
 
+/// A binary STL is an 80-byte header, a triangle count, then 50 bytes per triangle. Its header
+/// may start with `solid` like an ASCII file, so the size decides.
+fn is_binary_stl(bytes: &[u8]) -> bool {
+    bytes.len() >= 84 && {
+        let n = u32::from_le_bytes([bytes[80], bytes[81], bytes[82], bytes[83]]) as u64;
+        84 + 50 * n == bytes.len() as u64
+    }
+}
+
 /// Streams the triangles (no vertex dedup). A file that breaks off keeps what was read before.
 fn load_stl(bytes: &[u8]) -> Result<Vec<Tri>, String> {
+    if is_binary_stl(bytes) {
+        return Ok(read_binary(bytes));
+    }
     let mut cur = Cursor::new(bytes);
     let reader = stl_io::create_stl_reader(&mut cur).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
@@ -33,6 +45,20 @@ fn load_stl(bytes: &[u8]) -> Result<Vec<Tri>, String> {
         }
     }
     Ok(out)
+}
+
+/// The triangles of a binary STL whose size was checked by `is_binary_stl`.
+fn read_binary(bytes: &[u8]) -> Vec<Tri> {
+    let f = |at: usize| f32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+    bytes[84..]
+        .chunks_exact(50)
+        .enumerate()
+        .map(|(i, _)| {
+            // skip the 12-byte normal; three vertices of three floats follow
+            let base = 84 + i * 50 + 12;
+            std::array::from_fn(|v| std::array::from_fn(|c| f(base + v * 12 + c * 4)))
+        })
+        .collect()
 }
 
 fn load_obj(bytes: &[u8]) -> Result<Vec<Tri>, String> {
@@ -69,6 +95,15 @@ mod tests {
         assert_eq!(load_mesh("q.obj", obj).unwrap().len(), 2);
         assert!(load_mesh("e.obj", b"v 0 0 0\n").is_err());
         assert!(load_mesh("j.stl", b"\x00\x01junk").is_err());
+    }
+
+    #[test]
+    fn binary_stl_with_a_solid_header_loads() {
+        // SolidWorks and others write `solid <name>` into a binary file's 80-byte header
+        // (stl_io only treats it as ASCII when the first line is valid text, as here)
+        let mut bytes = stl_bytes(&cube(1.0));
+        bytes[..11].copy_from_slice(b"solid cube\n");
+        assert_eq!(load_mesh("a.stl", &bytes).unwrap().len(), 12);
     }
 
     #[test]
