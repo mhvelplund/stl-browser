@@ -258,6 +258,14 @@ prints either view.
   - **Paths over 259 characters** don't fit in a file descriptor. They are left out of a drag, and the UI says how many.
     Extract to… still writes them.
   - **One Extract to… at a time.** A second one is refused while the first runs.
+  - **No drag or Extract to… during an index run.** A run re-lists sources and reuses entry ids before the views are
+    rebuilt, so a plan made then could name the wrong file. Both are refused with a message until the run ends.
+  - **7z and RAR levels are read in one pass.** Those readers decode from the start of the archive for every member, so
+    file-by-file extraction is quadratic.
+    - Extract to… writes all the files of one 7z/RAR level from one pass.
+    - A drag reads the level on the first request into it. It keeps the other files from that level in delete-on-close
+      temp files, up to 2 GiB, and serves Explorer's later requests from them.
+    - Zip members and loose files are read directly.
   - **Results** (an extraction finished, items left out of a drag) stay in the status bar until the next selection.
 - *Added in milestone 5:*
   - **The queue replaces, it doesn't append.** Each request sends what is on screen (high) and the rest of the folder
@@ -403,6 +411,26 @@ From the milestone 5 review:
   would do better.
 - **Not smoke-checked:** thumbnails in the light theme, OBJ files from real data, and padlock tiles next to
   thumbnails.
+
+From the milestone 6 review:
+
+- **A real mouse drag to Explorer has not been tried.** Still unchecked: how WebView2 and `DoDragDrop` interact, a
+  stuck pressed state after the drag, the app staying responsive during a long copy, and Escape.
+- **Extract to… may act on the wrong folder.** It reads the current folder after the folder picker returns. Backspace
+  with the context menu open also navigates. Either way it can use another folder (usually giving "no longer exists").
+- **The status line lists every failed file.** A source deleted since indexing can fill it with thousands of entries.
+- **Extract to… can't be cancelled.** Closing the app mid-way leaves `.part` files.
+- **The app never learns how a drag ended.** A file that fails shows only in Explorer's own error dialog.
+- **Stream edge cases:**
+  - `IStream::Read` doesn't check for a null buffer.
+  - `CopyTo` drops bytes if the target accepts a short write.
+- **Large drags:**
+  - The descriptor block is rebuilt on every `GetData`, which costs about 60 MB per call at 100k files.
+  - Drag streams are staged in `%TEMP%`, so a file bigger than the free space on C: fails.
+- **Reserved names:** `conin$`, `conout$` and the superscript `com¹` / `lpt¹` device names are not escaped.
+- **A tiny race:** a button release between the button check and `DoDragDrop` drops onto whatever is under the cursor.
+- **No drag image:** the drag shows only the cursor, with no ghost thumbnail.
+- **Swapped mouse buttons** have not been tested with the OLE key state.
 
 ## Working notes
 
