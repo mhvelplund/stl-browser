@@ -80,6 +80,10 @@ impl ThumbService {
         Ok(ready.chain(failed).collect())
     }
 
+    pub fn pending(&self) -> usize {
+        self.queue.pending()
+    }
+
     pub fn dir(&self) -> &Path {
         &self.dir
     }
