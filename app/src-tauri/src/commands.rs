@@ -9,6 +9,7 @@ use stl_index::scanstore;
 use crate::browse::{self, Listing, View};
 use crate::indexer::{self, BUSY};
 use crate::state::{AppState, IndexGuard};
+use crate::thumbs::ThumbReady;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,6 +59,15 @@ pub fn select_thumb_impl(state: &AppState, node_key: String, image_key: String) 
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Thumbnails for these entries: the cached ones (and known failures) now, the rest later as
+/// `thumb-ready` events. `high` is what the user sees; a new request replaces the old queue.
+#[tauri::command(async)]
+pub fn request_thumbs(state: tauri::State<'_, AppState>, high: Vec<i64>, low: Vec<i64>) -> Result<Vec<ThumbReady>, String> {
+    let service = state.thumbs.get().ok_or("thumbnails are not started")?;
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    service.request(&conn, &high, &low)
 }
 
 /// Remember which carousel slot a tile shows (user data: it survives re-indexing).
