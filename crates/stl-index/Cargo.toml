@@ -9,6 +9,7 @@ dirs = "6"
 stl-scan = { version = "0.1.0", path = "../stl-scan" }
 serde_json = "1.0.154"
 stl-core = { path = "../stl-core" }
+stl-thumb = { path = "../stl-thumb" }
 indexmap = "2"
 thiserror = "2.0.21"
 

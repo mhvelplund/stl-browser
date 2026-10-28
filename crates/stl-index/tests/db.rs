@@ -116,3 +116,11 @@ fn thumbs_rows_cascade_with_entries() {
     let n: i64 = conn.query_row("SELECT count(*) FROM thumbs", [], |r| r.get(0)).unwrap();
     assert_eq!(n, 0);
 }
+
+#[test]
+fn open_sets_busy_timeout() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = db::open(&dir.path().join("index.db")).unwrap();
+    let ms: i64 = conn.query_row("PRAGMA busy_timeout", [], |r| r.get(0)).unwrap();
+    assert_eq!(ms, 5000);
+}
