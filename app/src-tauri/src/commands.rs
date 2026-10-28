@@ -64,10 +64,19 @@ pub fn select_thumb_impl(state: &AppState, node_key: String, image_key: String) 
 /// Thumbnails for these entries: the cached ones (and known failures) now, the rest later as
 /// `thumb-ready` events. `high` is what the user sees; a new request replaces the old queue.
 #[tauri::command(async)]
-pub fn request_thumbs(state: tauri::State<'_, AppState>, high: Vec<i64>, low: Vec<i64>) -> Result<Vec<ThumbReady>, String> {
+pub fn request_thumbs(state: tauri::State<'_, AppState>, high: Vec<i64>, low: Vec<i64>) -> Result<ThumbBatch, String> {
     let service = state.thumbs.get().ok_or("thumbnails are not started")?;
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    service.request(&conn, &high, &low)
+    let ready = service.request(&conn, &high, &low)?;
+    Ok(ThumbBatch { ready, pending: service.pending() })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbBatch {
+    pub ready: Vec<ThumbReady>,
+    /// Jobs queued or running after this request.
+    pub pending: usize,
 }
 
 /// Remember which carousel slot a tile shows (user data: it survives re-indexing).
