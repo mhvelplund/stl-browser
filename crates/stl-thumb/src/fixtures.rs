@@ -1,5 +1,5 @@
 //! Test fixtures shared by the modules' tests.
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 
 use ::image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 
@@ -40,4 +40,15 @@ pub fn png(w: u32, h: u32) -> Vec<u8> {
         .write_to(&mut Cursor::new(&mut out), ImageFormat::Png)
         .unwrap();
     out
+}
+
+/// A zip with the given members.
+pub fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let opts = zip::write::SimpleFileOptions::default();
+    for (name, data) in files {
+        w.start_file(*name, opts).unwrap();
+        w.write_all(data).unwrap();
+    }
+    w.finish().unwrap().into_inner()
 }
