@@ -16,6 +16,7 @@ use crate::browse::{View, Views, visible};
 use crate::state::AppState;
 
 pub const EXTRACT_BUSY: &str = "an extraction is already running";
+pub const INDEX_BUSY: &str = "the index is being updated; try again when it is done";
 
 /// The children named `names` of the folder at exactly `path`; an error when the UI is stale.
 pub fn nodes_for(views: &Views, view: View, path: &[String], names: &[String]) -> Result<Vec<NodeId>, String> {
@@ -36,6 +37,10 @@ pub fn nodes_for(views: &Views, view: View, path: &[String], names: &[String]) -
 /// The files and folders to write for `names` in the folder at `path`, and how many items
 /// were skipped (locked archives).
 pub fn build_export(state: &AppState, view: View, path: &[String], names: &[String]) -> Result<(Vec<ExportFile>, u32), String> {
+    // during a run, re-listed sources reuse entry ids while the views still hold the old ones
+    if state.is_indexing() {
+        return Err(INDEX_BUSY.into());
+    }
     let views = state.views()?;
     let ids = nodes_for(&views, view, path, names)?;
     let plan = export_plan(&views.get(view).tree, &ids, &|n| visible(view, n));
@@ -278,6 +283,18 @@ mod tests {
         assert_eq!(std::fs::read(out.join("orc (2)/orc.stl")).unwrap(), b"o");
         assert_eq!(std::fs::read(out.join("elf (2)/elf.stl")).unwrap(), b"e");
         assert_eq!(std::fs::read(out.join("orc/orc.stl")).unwrap(), b"o");
+    }
+
+    #[test]
+    fn export_refused_while_indexing() {
+        // an index run re-lists sources, and entry ids get reused before the views are rebuilt
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let g = state.try_begin_index().unwrap();
+        let err = build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap_err();
+        assert_eq!(err, INDEX_BUSY);
+        drop(g);
+        assert!(build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc"])).is_ok());
     }
 
     #[test]
