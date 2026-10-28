@@ -1,6 +1,7 @@
 //! Tauri commands. Each command is a thin wrapper over an `_impl` fn that tests can call directly.
 use serde::Serialize;
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use stl_index::scanstore;
@@ -8,6 +9,7 @@ use stl_index::scanstore;
 use crate::browse::{self, Listing, View};
 use crate::indexer::{self, BUSY};
 use crate::state::{AppState, IndexGuard};
+use crate::thumbs::ThumbReady;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,7 +37,52 @@ pub fn app_info(state: tauri::State<'_, AppState>) -> Result<AppInfo, String> {
 }
 
 pub fn list_folder_impl(state: &AppState, view: View, path: Vec<String>) -> Result<Listing, String> {
-    Ok(browse::list(&*state.views()?, view, &path))
+    let views = state.views()?;
+    let selected = selected_thumbs(state)?;
+    Ok(browse::list(&views, view, &path, &selected))
+}
+
+/// Every saved carousel choice: node key → image key (`composite` or an `f:` entry key).
+fn selected_thumbs(state: &AppState) -> Result<HashMap<String, String>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut st = conn.prepare("SELECT node_key, image_key FROM selected_thumb").map_err(|e| e.to_string())?;
+    let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(|e| e.to_string())?;
+    rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+}
+
+pub fn select_thumb_impl(state: &AppState, node_key: String, image_key: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO selected_thumb(node_key, image_key) VALUES (?1, ?2)
+         ON CONFLICT(node_key) DO UPDATE SET image_key = ?2",
+        [&node_key, &image_key],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Thumbnails for these entries: the cached ones (and known failures) now, the rest later as
+/// `thumb-ready` events. `high` is what the user sees; a new request replaces the old queue.
+#[tauri::command(async)]
+pub fn request_thumbs(state: tauri::State<'_, AppState>, high: Vec<i64>, low: Vec<i64>) -> Result<ThumbBatch, String> {
+    let service = state.thumbs.get().ok_or("thumbnails are not started")?;
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let ready = service.request(&conn, &high, &low)?;
+    Ok(ThumbBatch { ready, pending: service.pending() })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbBatch {
+    pub ready: Vec<ThumbReady>,
+    /// Jobs queued or running after this request.
+    pub pending: usize,
+}
+
+/// Remember which carousel slot a tile shows (user data: it survives re-indexing).
+#[tauri::command(async)]
+pub fn select_thumb(state: tauri::State<'_, AppState>, node_key: String, image_key: String) -> Result<(), String> {
+    select_thumb_impl(&state, node_key, image_key)
 }
 
 /// List the folder at `path` (name segments from the root); falls back to the deepest folder

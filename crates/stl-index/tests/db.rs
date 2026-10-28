@@ -17,8 +17,8 @@ fn open_creates_schema() {
     let v: i32 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(v, 4);
-    assert_eq!(db::SCHEMA_VERSION, 4);
+    assert_eq!(v, 5);
+    assert_eq!(db::SCHEMA_VERSION, 5);
     let t = tables(&conn);
     for name in [
         "roots",
@@ -32,6 +32,7 @@ fn open_creates_schema() {
         "models",
         "model_files",
         "assets",
+        "thumbs",
     ] {
         assert!(t.iter().any(|x| x == name), "missing table {name}: {t:?}");
     }
@@ -98,4 +99,28 @@ fn deleting_root_cascades() {
         )
         .unwrap();
     assert_eq!(n, 0);
+}
+
+#[test]
+fn thumbs_rows_cascade_with_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = db::open(&dir.path().join("index.db")).unwrap();
+    conn.execute_batch(
+        "INSERT INTO roots(id, path, name) VALUES (1, 'D:/x', 'x');
+         INSERT INTO sources(id, root_id, kind, path) VALUES (1, 1, 'archive', 'D:/x/a.zip');
+         INSERT INTO entries(id, source_id, path, chain) VALUES (7, 1, 'a.png', '[\"a.png\"]');
+         INSERT INTO thumbs(entry_id, cache_rel, status) VALUES (7, '0123456789abcdef/x.webp', 'ok');",
+    )
+    .unwrap();
+    conn.execute("DELETE FROM entries WHERE id = 7", []).unwrap();
+    let n: i64 = conn.query_row("SELECT count(*) FROM thumbs", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 0);
+}
+
+#[test]
+fn open_sets_busy_timeout() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = db::open(&dir.path().join("index.db")).unwrap();
+    let ms: i64 = conn.query_row("PRAGMA busy_timeout", [], |r| r.get(0)).unwrap();
+    assert_eq!(ms, 5000);
 }

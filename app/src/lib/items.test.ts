@@ -15,6 +15,9 @@ const base: Item = {
   models: 0,
   files: 7,
   images: 0,
+  composite: [],
+  pics: [],
+  slot: 0,
 };
 
 test("subtitles", () => {

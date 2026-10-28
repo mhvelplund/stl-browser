@@ -96,8 +96,12 @@ pub fn start_index_with(app: AppHandle, guard: IndexGuard) {
         let (done, views) = run_index(&db_path, &mut |p| {
             let _ = app.emit("index-progress", p);
         });
+        let state = app.state::<AppState>();
         if let Some(v) = views {
-            app.state::<AppState>().set_views(v);
+            state.set_views(v);
+        }
+        if let Some(t) = state.thumbs.get() {
+            t.clear();
         }
         drop(_guard);
         let _ = app.emit("index-done", done);
@@ -124,7 +128,7 @@ mod tests {
         assert_eq!(done.resolved, 1);
         assert_eq!(done.listed, 1);
         let v = views.unwrap();
-        let l = browse::list(&v, View::Files, &["vol".into(), "coll".into(), "elf".into()]);
+        let l = browse::list(&v, View::Files, &["vol".into(), "coll".into(), "elf".into()], &Default::default());
         assert_eq!(l.items.len(), 2);
     }
 

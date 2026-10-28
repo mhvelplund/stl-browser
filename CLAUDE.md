@@ -44,22 +44,29 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
 - `crates/stl-scan`: archive access. `archive.rs` puts ZIP/7Z/RAR behind one `Archive` trait (`open`); `nested.rs` lists
   archives recursively (max 3 deep, >256 MiB or anything nested in a RAR spills to a temp file); `extract.rs` re-opens a
   file by its `chain` of archive members; `discover.rs` walks a root and emits one source per archive plus one per
-  top-level folder with loose files.
+  top-level folder with loose files; `extract_many_entries` reads many files from one archive in a single pass.
+- `crates/stl-thumb`: thumbnails. `cache.rs` (cache names), `image.rs` (scale + lossless WebP), `mesh.rs` (STL/OBJ),
+  `raster.rs` (CPU z-buffer renderer), `generate.rs` (one archive pass per batch), `queue.rs` (two-level priority queue
+  with replace semantics). Render one file by hand: `cargo run --release -p stl-thumb --example thumb -- <in> <out.png>`.
 - `crates/stl-index`: `~/.stl-browser/index.db` (SQLite, WAL). `db.rs` holds schema + migrations; `scanstore.rs` holds
   `add_root` / `scan_root` (incremental rescan by size, mtime and folder file-name fingerprint; errored sources retried;
   vanished sources deleted; a root inside another root is skipped); `resolvestore.rs` holds `index_all` (scan, then
   re-resolve changed collections per (root, collection)); `views.rs` loads rows and builds both views (inner roots
-  become alias volumes); `parity.rs` backs `stlx parity`. `bin/stlx.rs` is the dev CLI.
-- `app/src-tauri`: Tauri shell (`lib.rs` setup, `state.rs` with the cached view trees and the index busy flag,
-  `commands.rs`, `browse.rs` for `list_folder`, `indexer.rs` for background index runs and their events).
-  `app/src/routes/+page.svelte` plus `app/src/lib/` (components, and pure `grid`/`nav`/`items` modules with tests):
+  become alias volumes; heroes and posters get their entry); `thumbstore.rs` sorts thumbnail requests into ready,
+  failed and jobs; `parity.rs` backs `stlx parity`. `bin/stlx.rs` is the dev CLI.
+- `app/src-tauri`: Tauri shell (`lib.rs` setup and the `thumb` protocol, `state.rs` with the cached view trees, the
+  index busy flag and the thumbnail service, `commands.rs`, `browse.rs` for `list_folder` and carousel slots,
+  `indexer.rs` for background index runs, `thumbs.rs` for thumbnail requests, workers and `thumb-ready`).
+  `app/src/routes/+page.svelte` plus `app/src/lib/` (components, and pure `grid`/`nav`/`items`/`indexrun`/`carousel`
+  modules with tests):
   SvelteKit UI with the static adapter.
 - The Python prototype (the resolver's porting reference) was deleted after parity held in milestone 3. It is still in
   git history, and its tests live on as `crates/stl-core/tests/{names,resolve,vtree_models}.rs`.
 
 DB tables split into **cached listings** (`roots`, `sources`, `entries`; rebuildable) and **user data** (`settings`,
 `selected_thumb`, `tags`, `node_tags`; never rebuilt, keyed by stable path strings, never row ids). Resolved tables
-(`groups`, `models`, `model_files`, `assets`) are rebuilt per collection and must never hold user data.
+(`groups`, `models`, `model_files`, `assets`) are rebuilt per collection and must never hold user data. `thumbs` is
+bookkeeping for the regenerable `~/.stl-browser/thumbs/` cache; its rows cascade with their entries.
 
 ## Rules and gotchas
 

@@ -149,8 +149,28 @@ pub fn models_view(conn: &Connection) -> Result<Tree, IndexError> {
             .collect::<Result<_, _>>()?;
     }
     let mut t = build_models(&input, true);
+    set_heroes(conn, &mut t)?;
     add_inner_volumes(conn, &mut t, &roots, &models_alt)?;
     Ok(t)
+}
+
+/// Point models at their hero image (or fallback poster) and groups at their poster.
+fn set_heroes(conn: &Connection, t: &mut Tree) -> Result<(), IndexError> {
+    let mut st = conn.prepare("SELECT a.id, a.entry_id, s.path, e.path FROM assets a JOIN entries e ON e.id = a.entry_id JOIN sources s ON s.id = e.source_id")?;
+    let assets: HashMap<i64, (i64, String)> = st
+        .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, format!("f:{}|{}", r.get::<_, String>(2)?, r.get::<_, String>(3)?)))))?
+        .collect::<Result<_, _>>()?;
+    for n in &mut t.nodes {
+        let asset = match n.kind {
+            NodeKind::Model => n.info.hero_asset_id,
+            NodeKind::Group | NodeKind::Collection => n.info.poster_asset_id,
+            _ => None,
+        };
+        if let Some((entry, key)) = asset.and_then(|a| assets.get(&a)) {
+            (n.info.hero_entry_id, n.info.hero_key) = (Some(*entry), Some(key.clone()));
+        }
+    }
+    Ok(())
 }
 
 pub fn files_view(conn: &Connection) -> Result<Tree, IndexError> {

@@ -8,7 +8,7 @@ anything out to Explorer to extract it.
 - Full design: [`superpowers/specs/2026-10-27-stl-browser-design.md`]
 - Implementation plans: [`superpowers/plans/2026-10-27-skeleton-and-scan.md`] (milestones 1–2),
   [`superpowers/plans/2026-10-27-resolve.md`] (milestone 3), `superpowers/plans/2026-10-27-browse-ui.md`
-  (milestone 4; plans are git-ignored)
+  (milestone 4) and `superpowers/plans/2026-10-28-thumbnails.md` (milestone 5). The last two are git-ignored.
 - Layout patterns, the model resolver, and the parity baseline: [`archive-patterns.md`]
 - The virtual folder tree, the two views, and the naming rules: [`virtual-tree.md`]
 - UI mockup (clickable): <https://claude.ai/artifact/Vum7b4yY5TjCBW1Csez2BH>
@@ -29,8 +29,8 @@ anything out to Explorer to extract it.
 | 2. Scan: native ZIP/7Z/RAR, nested archives, extract by chain, discovery, incremental rescan | done                                          |
 | 3. Resolve: port of the prototype's model resolver and virtual tree                          | done                                          |
 | 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                      | done                                          |
-| 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | next                                          |
-| 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | planned                                       |
+| 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | done                                          |
+| 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | next                                          |
 | 7. Tags, search, filters                                                                     | later (only the database tables exist so far) |
 
 Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and
@@ -53,6 +53,14 @@ Milestone 4 was smoke-tested in `tauri dev` on Vol.1, driving the WebView over C
 RAR opened as a folder with correct hover paths, Rescan with progress (unchanged: 0.9 s), Back/Up, the virtualized grid
 and the light scheme. The native Add folder dialog and padlock tiles still need a manual check.
 
+Milestone 5 was smoke-tested the same way on Vol.1 + Vol.2:
+
+- **Collection composites** fill in. The first ~50 thumbnails, from big solid RARs, take about a minute.
+- **STL renders:** Robots STC (no images) shows them, and models with pictures default to their hero.
+- **Carousel:** a flipped slot is saved and survives a restart.
+- **Cache:** deleting `thumbs/` while the app runs regenerates on reopen.
+- **Status bar:** the queue counts down to "up to date".
+
 ## Architecture
 
 ```text
@@ -60,27 +68,37 @@ Cargo.toml                 workspace
 crates/stl-core/           pure logic, no I/O: file kinds and name heuristics (names.rs), the model resolver
                            (resolve/), the virtual tree and both views (vtree/)
 crates/stl-scan/           archive readers (ZIP, 7Z, RAR behind one trait), nested listing, extract by chain, discovery
+crates/stl-thumb/          thumbnails: cache names (cache.rs), image scaling + WebP (image.rs), STL/OBJ loading
+                           (mesh.rs), the CPU rasterizer (raster.rs), batches read in one archive pass (generate.rs),
+                           the priority job queue (queue.rs); `examples/thumb.rs` renders one local file to PNG
 crates/stl-index/          app dir, SQLite schema + migrations, incremental scans (scanstore.rs), per-collection resolve
-                           (resolvestore.rs), views from the DB (views.rs), prototype parity (parity.rs), `stlx` dev CLI
-app/src-tauri/             Tauri shell: state (DB + cached views + busy flag), commands, browse.rs (listings),
-                           indexer.rs (background index runs and their events)
+                           (resolvestore.rs), views from the DB (views.rs), thumbnail rows (thumbstore.rs), prototype
+                           parity (parity.rs), `stlx` dev CLI
+app/src-tauri/             Tauri shell: state (DB + cached views + busy flag + thumbnail service), commands,
+                           browse.rs (listings and carousels), indexer.rs (background index runs), thumbs.rs
+                           (thumbnail requests, workers, `thumb-ready`, the `thumb` protocol)
 app/src/                   SvelteKit UI (static adapter): routes/+page.svelte plus components and pure logic
-                           modules (grid, nav, items) in lib/, tested with `node --test`
+                           modules (grid, nav, items, indexrun, carousel) in lib/, tested with `node --test`
 ```
 
-Planned crates: `stl-thumb` (thumbnails and the STL renderer) and `stl-drag` (Windows OLE drag-out).
+Planned crate: `stl-drag` (Windows OLE drag-out).
 
 ### Data on disk: `~/.stl-browser/`
 
-- `index.db` (SQLite, WAL), at schema version 4:
+- `index.db` (SQLite, WAL), at schema version 5:
   - **Cached listings:** `roots` (the added folders), `sources` (each archive, or each folder of loose files), `entries`
     (every file found, with `chain`, the archive members to open in order to reach it).
   - **Resolved tables:** `groups`, `models`, `model_files`, `assets`. They are rebuilt per (root, collection) whenever
     one of that collection's sources changes. `resolved` marks the collections that are up to date.
   - **User data, never rebuilt:** `settings`, `selected_thumb`, `tags`, `node_tags`. These are keyed by stable path
     strings, never by row ids.
-  - **Later:** `thumbs`.
-- `thumbs/<hash of location>/<hash of content>.webp`: 128×128 thumbnails that can be regenerated (milestone 5).
+  - **Thumbnail bookkeeping:** `thumbs(entry_id, cache_rel, status, error)`.
+    - A row goes with its entry (cascade), so a re-listed source drops its rows.
+    - A row only counts while its file exists.
+    - `error` rows are not retried until the entry changes.
+- `thumbs/<location>/<content>.webp`: 128×128 thumbnails that can always be regenerated.
+  - `<location>` is the first 16 hex chars of blake3(source path + `\0` + chain).
+  - `<content>` is `<crc>-<size>` from the archive, or blake3 of the bytes for loose files.
 - Tests and `stlx` can point everything elsewhere with `STL_BROWSER_HOME`.
 
 ### Scanning
@@ -175,6 +193,24 @@ prints either view.
 - **`locked` flags on sources and entries** (schema v3) mark password-protected archives.
 - **Panics are caught.** The release build uses `panic = "unwind"`, so a crash inside an archive library becomes an
   error on that archive instead of closing the app.
+- *Added in milestone 5:*
+  - **The queue replaces, it doesn't append.** Each request sends what is on screen (high) and the rest of the folder
+    (low), replacing whatever was queued, so a folder you left doesn't keep the workers busy. Jobs from one archive run
+    as one batch (≤ 64), and the archive is read in a single pass.
+  - **Std worker threads instead of rayon** (cores − 1). The queue needs priorities, grouping and replace, which a
+    rayon pool doesn't give.
+  - **Carousel slots:**
+    - Pictures are up to 11 nested images (the hero first if it lives outside the folder), else up to 6 nested STL/OBJ
+      files.
+    - The composite is four child folders' shown pictures, filled up from the folder's own pictures. It needs at least
+      2 cells, otherwise there is no composite slot.
+    - Default slot: the hero, else slot 0.
+    - The saved choice is honoured only while it still exists.
+  - **The CRC shortcut.** An archive entry's cache name is known from its stored CRC, so a hit costs no extraction.
+  - **Size caps:** images ≤ 64 MiB, meshes ≤ 256 MiB.
+  - **Small images are scaled up** to fill the square.
+  - **No thumbnail for macOS AppleDouble files** (`__MACOSX/`, `._x.stl`). They borrow real file names, and they were
+    being picked as a model's meshes.
 - *Added in milestone 4:*
   - **Trees are cached in `AppState`** and rebuilt by the index worker after every run (about 0.8 s for both views).
   - **The Files view hides other files.** It lists folders, images and object files (`model`, `scene`). The Models
@@ -254,8 +290,8 @@ From the milestone 3 review:
 - **Adding an outer root after an inner one** re-reads every archive, because the cache lookup filters on `root_id`.
   It is correct, but slow on a big volume, and it has no test.
 - **Adding an outer root changes the resolution unit and the `m:` keys of the inner content.** All of Vol.1 becomes
-  one collection under `STL`. Nothing uses those keys yet, but tags and thumbnail choices will need keys that survive
-  this.
+  one collection under `STL`. Saved thumbnail choices (`selected_thumb`) use these keys since milestone 5, so they are
+  lost for that content; tags will need keys that survive this.
 - **Duplicate roots already in a v3 DB** (`D:\Models` and `d:\models\`) are never merged. New ones are refused.
 - **A source that keeps failing** makes its collection re-resolve on every run (about 0.1 s per collection).
 - **Missing indexes:** `sources(root_id, collection)` and `assets(group_id)`.
@@ -280,6 +316,26 @@ From the milestone 4 review:
   - Tab can't reach tiles outside the rendered rows, and there are no arrow keys in the grid.
   - The progress block's `role="status"` announces every source.
 - **Files view folders that hold only hidden files** show as empty folders. They are not pruned.
+
+From the milestone 5 review:
+
+- **Broken thumbnail images.** A thumbnail `<img>` that 404s shows the browser's broken-image glyph. It has no
+  `onerror`, and an `immutable` URL won't reload.
+- **A composite whose cells all failed** shows four blank cells instead of the kind icon.
+- **Skeleton flash after an index run.** Every tile shows the "generating" placeholder briefly, because the url map
+  is cleared before the reload answers.
+- **Image decoding is heavy.** It converts and resizes at full resolution, which costs a lot of memory and CPU for
+  8k photos multiplied by the worker count.
+- **The `thumb` protocol spawns one OS thread per request.** It should use `spawn_blocking`.
+- **The queue builds a group key per queued job on every batch pop.** That is O(N) work under the lock.
+- **Solid archives are decompressed once per 64-job batch.** Batches of one archive can also run on several workers
+  at once.
+- **A NULL entry size becomes 0**, which bypasses the size caps. Archive listings always store sizes.
+- **Orphaned `.webp` files are never removed.** The cache grows as archives change.
+- **Models without images show their first mesh in tree order**, often a base or an arm. Picking the largest file
+  would do better.
+- **Not smoke-checked:** thumbnails in the light theme, OBJ files from real data, and padlock tiles next to
+  thumbnails.
 
 ## Working notes
 

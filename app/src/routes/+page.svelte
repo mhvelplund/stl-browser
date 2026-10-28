@@ -1,9 +1,11 @@
 <script lang="ts">
   import "$lib/theme.css";
   import { onMount } from "svelte";
+  import { SvelteMap } from "svelte/reactivity";
   import { open as pickFolder } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
   import type { IndexDone, IndexProgress, Item, Listing, Status, View } from "$lib/api";
+  import { requests, slotKey, slots } from "$lib/carousel";
   import { idle, step, type Run, type RunEvent } from "$lib/indexrun";
   import { folderSummary } from "$lib/items";
   import { goBack, goTo, open, settle, start, up, type Nav } from "$lib/nav";
@@ -25,6 +27,36 @@
   /** The grid's current scroll position (not reactive: only read when navigating). */
   let scroll = 0;
   let seq = 0;
+  /** Thumbnail urls by entry id (`null` = no thumbnail); entry ids hold until an index run. */
+  const urls = new SvelteMap<number, string | null>();
+  /** Carousel slots picked in this listing, by item key. */
+  const chosen = new SvelteMap<string, number>();
+  let thumbPending = $state(0);
+  let visible = { first: 0, last: 0 };
+  let thumbTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Ask for the thumbnails of what is on screen first, then the rest of the folder (debounced). */
+  function askThumbs() {
+    clearTimeout(thumbTimer);
+    thumbTimer = setTimeout(async () => {
+      if (!listing) return;
+      const r = requests(listing.items, chosen, visible);
+      try {
+        const got = await api.requestThumbs(r.high, r.low);
+        for (const t of got.ready) urls.set(t.entryId, t.url);
+        thumbPending = got.pending;
+      } catch (e) {
+        run = { ...run, hint: `Thumbnails unavailable: ${e}` };
+      }
+    }, 120);
+  }
+
+  function pickSlot(item: Item, i: number) {
+    chosen.set(item.key, i);
+    const s = slots(item)[i];
+    if (s) api.selectThumb(item.key, slotKey(s)).catch((e) => (run = { ...run, hint: `Could not save the thumbnail choice: ${e}` }));
+    askThumbs();
+  }
 
   const usage = "Double-click a tile to open it · Backspace goes up · hover a tile to see where it really is";
 
@@ -36,6 +68,8 @@
       if (my !== seq) return;
       nav = settle(next, l.path);
       listing = l;
+      chosen.clear();
+      askThumbs();
       if (!keepSelection || !l.items.some((i) => i.name === selected)) selected = null;
       restore = scrollTo;
       scroll = scrollTo;
@@ -98,6 +132,7 @@
   function done(d: IndexDone) {
     progress = null;
     apply({ type: "done", done: d });
+    urls.clear(); // entry ids change when sources are re-listed
     refreshStatus();
     load(nav, scroll, true);
   }
@@ -119,7 +154,14 @@
   const noRoots = $derived(status !== null && status.roots.length === 0);
 
   onMount(() => {
-    const unlisten = [api.onIndexProgress((p) => (progress = p)), api.onIndexDone(done)];
+    const unlisten = [
+      api.onIndexProgress((p) => (progress = p)),
+      api.onIndexDone(done),
+      api.onThumbReady((r) => {
+        urls.set(r.entryId, r.url);
+        thumbPending = r.pending;
+      }),
+    ];
     refreshStatus().then(() => {
       if (status?.indexing && !run.busy) apply({ type: "start", hint: "Indexing…" });
     });
@@ -165,13 +207,20 @@
           onSelect={(i) => (selected = i.name)}
           onOpen={openItem}
           onScroll={(t) => (scroll = t)}
+          {urls}
+          {chosen}
+          onSlot={pickSlot}
+          onVisible={(r) => {
+            visible = r;
+            askThumbs();
+          }}
         />
       {:else}
         <p class="empty">{busy ? "Indexing…" : "This folder is empty"}</p>
       {/if}
     {/if}
   </main>
-  <StatusBar {status} hint={footerHint} {progress} />
+  <StatusBar {status} hint={footerHint} {progress} {thumbPending} />
 </div>
 
 <style>
