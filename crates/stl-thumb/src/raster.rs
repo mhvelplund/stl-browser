@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn cube_renders_centred_and_non_empty() {
         let img = render(&cube(10.0));
-        assert_eq!(img.dimensions(), (128, 128));
+        assert_eq!(img.dimensions(), (256, 256));
         let (mut n, mut sx, mut sy) = (0u32, 0u64, 0u64);
         for (x, y, p) in img.enumerate_pixels() {
             if p[3] > 128 {
@@ -123,10 +123,10 @@ mod tests {
                 sy += y as u64;
             }
         }
-        let cov = n as f64 / (128.0 * 128.0);
+        let cov = n as f64 / (256.0 * 256.0);
         assert!((0.2..0.9).contains(&cov), "coverage {cov}");
         let (cx, cy) = (sx as f64 / n as f64, sy as f64 / n as f64);
-        assert!((cx - 64.0).abs() < 8.0 && (cy - 64.0).abs() < 8.0, "centroid {cx},{cy}");
+        assert!((cx - 128.0).abs() < 16.0 && (cy - 128.0).abs() < 16.0, "centroid {cx},{cy}");
         // three visible faces get three different grey levels
         let mut greys: Vec<u8> = img.pixels().filter(|p| p[3] == 255).map(|p| p[0]).collect();
         greys.sort();
@@ -138,7 +138,7 @@ mod tests {
     fn far_from_origin_still_fits() {
         let tris: Vec<_> = cube(1.0).iter().map(|t| t.map(|v| [v[0] + 1e4, v[1] - 3e3, v[2] + 50.0])).collect();
         let img = render(&tris);
-        assert!(img.pixels().filter(|p| p[3] > 128).count() > 128 * 128 / 5);
+        assert!(img.pixels().filter(|p| p[3] > 128).count() > 256 * 256 / 5);
     }
 
     #[test]

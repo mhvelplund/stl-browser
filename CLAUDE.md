@@ -45,7 +45,7 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
   archives recursively (max 3 deep, >256 MiB or anything nested in a RAR spills to a temp file); `extract.rs` re-opens a
   file by its `chain` of archive members; `discover.rs` walks a root and emits one source per archive plus one per
   top-level folder with loose files; `extract_many_entries` reads many files from one archive in a single pass.
-- `crates/stl-thumb`: thumbnails. `cache.rs` (cache names), `image.rs` (scale + lossless WebP), `mesh.rs` (STL/OBJ),
+- `crates/stl-thumb`: thumbnails. `cache.rs` (cache names), `image.rs` (scale within 256×256 + JPEG q80), `mesh.rs` (STL/OBJ),
   `raster.rs` (CPU z-buffer renderer), `generate.rs` (one archive pass per batch), `queue.rs` (two-level priority queue
   with replace semantics). Render one file by hand: `cargo run --release -p stl-thumb --example thumb -- <in> <out.png>`.
 - `crates/stl-index`: `~/.stl-browser/index.db` (SQLite, WAL). `db.rs` holds schema + migrations; `scanstore.rs` holds
