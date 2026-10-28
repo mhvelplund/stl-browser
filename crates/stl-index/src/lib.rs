@@ -4,4 +4,5 @@ pub mod parity;
 pub mod paths;
 pub mod resolvestore;
 pub mod scanstore;
+pub mod thumbstore;
 pub mod views;
