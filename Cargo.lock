@@ -3684,6 +3684,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "stl-drag"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "stl-index"
 version = "0.1.0"
 dependencies = [
