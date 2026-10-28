@@ -1,4 +1,4 @@
-//! Cache layout: `<thumbs dir>/<location>/<content>.webp`. The location says where a file is
+//! Cache layout: `<thumbs dir>/<location>/<content>.jpg`. The location says where a file is
 //! (source path + chain), the content says what it holds, so a moved or changed file never
 //! reuses a stale thumbnail.
 
@@ -24,14 +24,15 @@ pub fn content_hash(bytes: &[u8]) -> String {
 }
 
 pub fn cache_rel(location: &str, content: &str) -> String {
-    format!("{location}/{content}.webp")
+    format!("{location}/{content}.jpg")
 }
 
-/// Only `<16 lowercase hex>/<lowercase hex and dashes>.webp` names a cache file.
+/// Only `<16 lowercase hex>/<lowercase hex and dashes>.jpg` names a cache file (so rows from
+/// the earlier WebP cache count as stale and are regenerated).
 pub fn is_valid_rel(rel: &str) -> bool {
     let lower_hex = |c: char| c.is_ascii_digit() || ('a'..='f').contains(&c);
     let Some((dir, file)) = rel.split_once('/') else { return false };
-    let Some(stem) = file.strip_suffix(".webp") else { return false };
+    let Some(stem) = file.strip_suffix(".jpg") else { return false };
     dir.len() == 16 && dir.chars().all(lower_hex) && !stem.is_empty() && stem.chars().all(|c| lower_hex(c) || c == '-')
 }
 
@@ -49,23 +50,24 @@ mod tests {
         assert_eq!(content_name("1A2B3C4D", 1234).as_deref(), Some("1a2b3c4d-1234"));
         assert_eq!(content_name("", 1234), None);
         assert_eq!(content_hash(b"x").len(), 32);
-        assert_eq!(cache_rel(&a, "1a2b3c4d-1234"), format!("{a}/1a2b3c4d-1234.webp"));
+        assert_eq!(cache_rel(&a, "1a2b3c4d-1234"), format!("{a}/1a2b3c4d-1234.jpg"));
     }
 
     #[test]
     fn cache_rel_is_validated() {
-        assert!(is_valid_rel("0123456789abcdef/1a2b3c4d-1234.webp"));
-        assert!(is_valid_rel("0123456789abcdef/0123456789abcdef0123456789abcdef.webp"));
+        assert!(is_valid_rel("0123456789abcdef/1a2b3c4d-1234.jpg"));
+        assert!(is_valid_rel("0123456789abcdef/0123456789abcdef0123456789abcdef.jpg"));
         for bad in [
             "../index.db",
-            "0123456789abcdef/../../x.webp",
-            "C:\\x.webp",
-            "/etc/x.webp",
-            "0123456789abcdef\\a.webp",
+            "0123456789abcdef/../../x.jpg",
+            "C:\\x.jpg",
+            "/etc/x.jpg",
+            "0123456789abcdef\\a.jpg",
             "0123456789abcdef/a.png",
-            "0123456789ABCDEF/a.webp",
-            "0123456789abcdef/.webp",
-            "0123456789abcdef/a.webp/b.webp",
+            "0123456789abcdef/1a2b3c4d-1234.webp",
+            "0123456789ABCDEF/a.jpg",
+            "0123456789abcdef/.jpg",
+            "0123456789abcdef/a.jpg/b.jpg",
             "",
         ] {
             assert!(!is_valid_rel(bad), "{bad}");

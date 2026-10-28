@@ -68,7 +68,7 @@ Cargo.toml                 workspace
 crates/stl-core/           pure logic, no I/O: file kinds and name heuristics (names.rs), the model resolver
                            (resolve/), the virtual tree and both views (vtree/)
 crates/stl-scan/           archive readers (ZIP, 7Z, RAR behind one trait), nested listing, extract by chain, discovery
-crates/stl-thumb/          thumbnails: cache names (cache.rs), image scaling + WebP (image.rs), STL/OBJ loading
+crates/stl-thumb/          thumbnails: cache names (cache.rs), image scaling + JPEG (image.rs), STL/OBJ loading
                            (mesh.rs), the CPU rasterizer (raster.rs), batches read in one archive pass (generate.rs),
                            the priority job queue (queue.rs); `examples/thumb.rs` renders one local file to PNG
 crates/stl-index/          app dir, SQLite schema + migrations, incremental scans (scanstore.rs), per-collection resolve
@@ -96,7 +96,8 @@ Planned crate: `stl-drag` (Windows OLE drag-out).
     - A row goes with its entry (cascade), so a re-listed source drops its rows.
     - A row only counts while its file exists.
     - `error` rows are not retried until the entry changes.
-- `thumbs/<location>/<content>.webp`: 128×128 thumbnails that can always be regenerated.
+- `thumbs/<location>/<content>.jpg`: thumbnails within 256×256 (JPEG, quality 80) that can always be regenerated.
+  Images keep their shape; STL/OBJ renders are square on the tile grey `#2A2E34`, since JPEG has no transparency.
   - `<location>` is the first 16 hex chars of blake3(source path + `\0` + chain).
   - `<content>` is `<crc>-<size>` from the archive, or blake3 of the bytes for loose files.
 - Tests and `stlx` can point everything elsewhere with `STL_BROWSER_HOME`.
@@ -168,6 +169,7 @@ prints either view.
   chosen slot is saved in the DB.
 - **Thumbnails are generated when a folder is first opened**, cached as `<hash of path>/<hash of file>`, and regenerated
   if missing. STL files get rendered thumbnails.
+- **Thumbnails are 256×256 JPEG files at quality 80** *(added after milestone 5, replacing the 128×128 WebP files)*.
 - **Tags, search and filtering come later.** User data lives in the SQLite DB in `~/.stl-browser/`.
 - **Password-protected archives are not supported** *(added after milestone 2; the scanner side is done)*:
   - Don't try to scan them.
@@ -182,7 +184,7 @@ prints either view.
 ### Made by me (correct any that are wrong)
 
 - **Thumbnail content hash.** Archive entries use the CRC32 + size stored in the archive, so the cache can be checked
-  without extracting. Loose files use blake3 of their bytes. Thumbnails are `.webp`, 128×128.
+  without extracting. Loose files use blake3 of their bytes.
 - **STL/OBJ thumbnails** come from a CPU software renderer: z-buffer, 3/4 isometric view, grey shading. No GPU needed.
 - **User data keys.** In the Models view: `m:<collection>/<path>`. In the Files view: `f:<source path>|<inner path>`.
   Both are built from real paths, never row ids, so they survive re-indexing.
@@ -331,7 +333,8 @@ From the milestone 5 review:
 - **Solid archives are decompressed once per 64-job batch.** Batches of one archive can also run on several workers
   at once.
 - **A NULL entry size becomes 0**, which bypasses the size caps. Archive listings always store sizes.
-- **Orphaned `.webp` files are never removed.** The cache grows as archives change.
+- **Orphaned cache files are never removed.** The cache grows as archives change, and the `.webp` files from before
+  the switch to JPEG stay behind too. Deleting `thumbs/` is always safe.
 - **Models without images show their first mesh in tree order**, often a base or an arm. Picking the largest file
   would do better.
 - **Not smoke-checked:** thumbnails in the light theme, OBJ files from real data, and padlock tiles next to
