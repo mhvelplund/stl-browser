@@ -3,6 +3,7 @@ pub mod cache;
 pub mod generate;
 pub mod image;
 pub mod mesh;
+pub mod queue;
 pub mod raster;
 
 #[cfg(test)]
