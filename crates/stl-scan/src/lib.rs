@@ -3,6 +3,7 @@ pub mod archive;
 pub mod discover;
 pub mod extract;
 pub mod nested;
+pub mod session;
 mod error;
 
 pub use error::ScanError;
