@@ -290,8 +290,8 @@ From the milestone 3 review:
 - **Adding an outer root after an inner one** re-reads every archive, because the cache lookup filters on `root_id`.
   It is correct, but slow on a big volume, and it has no test.
 - **Adding an outer root changes the resolution unit and the `m:` keys of the inner content.** All of Vol.1 becomes
-  one collection under `STL`. Nothing uses those keys yet, but tags and thumbnail choices will need keys that survive
-  this.
+  one collection under `STL`. Saved thumbnail choices (`selected_thumb`) use these keys since milestone 5, so they are
+  lost for that content; tags will need keys that survive this.
 - **Duplicate roots already in a v3 DB** (`D:\Models` and `d:\models\`) are never merged. New ones are refused.
 - **A source that keeps failing** makes its collection re-resolve on every run (about 0.1 s per collection).
 - **Missing indexes:** `sources(root_id, collection)` and `assets(group_id)`.
@@ -316,6 +316,26 @@ From the milestone 4 review:
   - Tab can't reach tiles outside the rendered rows, and there are no arrow keys in the grid.
   - The progress block's `role="status"` announces every source.
 - **Files view folders that hold only hidden files** show as empty folders. They are not pruned.
+
+From the milestone 5 review:
+
+- **Broken thumbnail images.** A thumbnail `<img>` that 404s shows the browser's broken-image glyph. It has no
+  `onerror`, and an `immutable` URL won't reload.
+- **A composite whose cells all failed** shows four blank cells instead of the kind icon.
+- **Skeleton flash after an index run.** Every tile shows the "generating" placeholder briefly, because the url map
+  is cleared before the reload answers.
+- **Image decoding is heavy.** It converts and resizes at full resolution, which costs a lot of memory and CPU for
+  8k photos multiplied by the worker count.
+- **The `thumb` protocol spawns one OS thread per request.** It should use `spawn_blocking`.
+- **The queue builds a group key per queued job on every batch pop.** That is O(N) work under the lock.
+- **Solid archives are decompressed once per 64-job batch.** Batches of one archive can also run on several workers
+  at once.
+- **A NULL entry size becomes 0**, which bypasses the size caps. Archive listings always store sizes.
+- **Orphaned `.webp` files are never removed.** The cache grows as archives change.
+- **Models without images show their first mesh in tree order**, often a base or an arm. Picking the largest file
+  would do better.
+- **Not smoke-checked:** thumbnails in the light theme, OBJ files from real data, and padlock tiles next to
+  thumbnails.
 
 ## Working notes
 
