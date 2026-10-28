@@ -24,7 +24,7 @@ pub fn run() {
             std::thread::spawn(move || {
                 let response = match dir.and_then(|d| thumbs::serve(&d, &path)) {
                     Some(bytes) => Response::builder()
-                        .header(header::CONTENT_TYPE, "image/webp")
+                        .header(header::CONTENT_TYPE, "image/jpeg")
                         .header(header::CACHE_CONTROL, "max-age=31536000, immutable")
                         .body(bytes),
                     None => Response::builder().status(StatusCode::NOT_FOUND).body(Vec::new()),

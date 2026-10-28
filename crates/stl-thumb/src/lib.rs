@@ -10,7 +10,7 @@ pub mod raster;
 mod fixtures;
 
 /// Thumbnails are square, this many pixels on a side.
-pub const THUMB_SIZE: u32 = 128;
+pub const THUMB_SIZE: u32 = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbKind {

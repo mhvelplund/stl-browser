@@ -170,21 +170,21 @@ mod tests {
     #[test]
     fn thumb_url_shape() {
         if cfg!(windows) {
-            assert_eq!(thumb_url("a/b.webp"), "http://thumb.localhost/a/b.webp");
+            assert_eq!(thumb_url("a/b.jpg"), "http://thumb.localhost/a/b.jpg");
         } else {
-            assert_eq!(thumb_url("a/b.webp"), "thumb://localhost/a/b.webp");
+            assert_eq!(thumb_url("a/b.jpg"), "thumb://localhost/a/b.jpg");
         }
     }
 
     #[test]
     fn serve_refuses_bad_paths() {
         let dir = tempfile::tempdir().unwrap();
-        let rel = "0123456789abcdef/1a2b3c4d-5.webp";
+        let rel = "0123456789abcdef/1a2b3c4d-5.jpg";
         std::fs::create_dir_all(dir.path().join("0123456789abcdef")).unwrap();
-        std::fs::write(dir.path().join(rel), b"RIFFwebp").unwrap();
+        std::fs::write(dir.path().join(rel), b"JPEGdata").unwrap();
         std::fs::write(dir.path().join("secret.db"), b"x").unwrap();
-        assert_eq!(serve(dir.path(), &format!("/{rel}")), Some(b"RIFFwebp".to_vec()));
-        for bad in ["/secret.db", "/../secret.db", "/0123456789abcdef/../secret.db", "/0123456789abcdef/missing.webp", "/"] {
+        assert_eq!(serve(dir.path(), &format!("/{rel}")), Some(b"JPEGdata".to_vec()));
+        for bad in ["/secret.db", "/../secret.db", "/0123456789abcdef/../secret.db", "/0123456789abcdef/missing.jpg", "/"] {
             assert_eq!(serve(dir.path(), bad), None, "{bad}");
         }
     }

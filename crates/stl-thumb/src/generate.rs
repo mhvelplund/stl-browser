@@ -9,7 +9,7 @@ use stl_scan::ScanError;
 use stl_scan::extract::extract_many_entries;
 
 use crate::cache::{cache_rel, content_hash, content_name, location_dir};
-use crate::image::{encode_webp, image_thumb};
+use crate::image::{encode_jpeg, image_thumb};
 use crate::mesh::load_mesh;
 use crate::raster::render;
 use crate::{ThumbKind, thumb_kind};
@@ -163,13 +163,13 @@ fn make(thumbs_dir: &Path, job: &Job, bytes: &[u8]) -> Outcome {
     }))
     .unwrap_or_else(|_| Err("internal error while decoding".into()))
     .map_err(Failure::Bad)?;
-    let webp = encode_webp(&img).map_err(Failure::Bad)?;
+    let jpg = encode_jpeg(&img).map_err(Failure::Bad)?;
     // writing the cache can fail for reasons that pass (disk full, a locked folder)
     let io = |e: std::io::Error| Failure::Unavailable(e.to_string());
     std::fs::create_dir_all(path.parent().expect("cache_rel has a directory")).map_err(io)?;
     // write then rename, so a reader never sees half a file
     let tmp = path.with_extension(format!("{}.tmp", job.entry_id));
-    std::fs::write(&tmp, &webp).map_err(io)?;
+    std::fs::write(&tmp, &jpg).map_err(io)?;
     if let Err(e) = std::fs::rename(&tmp, &path) {
         let _ = std::fs::remove_file(&tmp);
         // another worker may have written the same file meanwhile
@@ -227,10 +227,12 @@ mod tests {
         let mut mtimes = Vec::new();
         for j in &jobs {
             let rel = out[&j.entry_id].clone().unwrap();
-            assert!(rel.ends_with(&format!("-{}.webp", j.size)), "{rel}"); // CRC-named
+            assert!(rel.ends_with(&format!("-{}.jpg", j.size)), "{rel}"); // CRC-named
             let file = thumbs.join(&rel);
             let img = ::image::open(&file).unwrap();
-            assert_eq!((img.width(), img.height()), (128, 128));
+            // the 40×30 picture keeps its shape; the render is square
+            let want = if j.chain[0].ends_with(".png") { (256, 192) } else { (256, 256) };
+            assert_eq!((img.width(), img.height()), want);
             mtimes.push(std::fs::metadata(&file).unwrap().modified().unwrap());
         }
         // a second run finds the files and leaves them alone
@@ -277,7 +279,7 @@ mod tests {
         let (da, fa) = a.split_once('/').unwrap();
         let (db, fb) = b.split_once('/').unwrap();
         assert_eq!(fa, fb);
-        assert_eq!(fa.len(), 32 + ".webp".len());
+        assert_eq!(fa.len(), 32 + ".jpg".len());
         assert_ne!(da, db);
     }
 
