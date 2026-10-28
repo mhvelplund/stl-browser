@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.37", features = ["bundled", "hooks"] }
 dirs = "6"
 stl-scan = { version = "0.1.0", path = "../stl-scan" }
 serde_json = "1.0.154"

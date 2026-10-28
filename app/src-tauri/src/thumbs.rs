@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 use stl_index::{db, thumbstore};
 use stl_thumb::cache::is_valid_rel;
-use stl_thumb::generate::{Job, generate};
+use stl_thumb::generate::{Failure, Job, generate};
 use stl_thumb::queue::{Queue, default_threads};
 
 /// `thumb-ready`: a thumbnail finished (`url: None` if it failed).
@@ -46,16 +46,19 @@ impl ThumbService {
             Arc::new(move |batch: Vec<Job>| {
                 let mut done = 0;
                 generate(&run_dir, &batch, &mut |job, outcome| {
-                    {
+                    done += 1;
+                    let stored = {
                         let mut slot = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if slot.is_none() {
                             *slot = db::open(&db_path).ok();
                         }
-                        if let Some(c) = slot.as_ref() {
-                            let _ = thumbstore::record(c, job.entry_id, &outcome);
-                        }
+                        slot.as_ref().is_some_and(|c| thumbstore::record(c, job, &outcome).unwrap_or(false))
+                    };
+                    // a job from before an index run whose entry id now names another file says
+                    // nothing about that file; an unavailable file is still worth a "no picture"
+                    if !stored && !matches!(outcome, Err(Failure::Unavailable(_))) {
+                        return;
                     }
-                    done += 1;
                     // the whole batch counts as in flight until it returns
                     let pending = run_queue.get().map_or(0, |q| q.pending()).saturating_sub(done);
                     notify(ThumbReady { entry_id: job.entry_id, url: outcome.ok().map(|r| thumb_url(&r)), pending });
@@ -78,6 +81,11 @@ impl ThumbService {
         let ready = l.ready.into_iter().map(|(entry_id, rel)| ThumbReady { entry_id, url: Some(thumb_url(&rel)), pending });
         let failed = l.failed.into_iter().map(|entry_id| ThumbReady { entry_id, url: None, pending });
         Ok(ready.chain(failed).collect())
+    }
+
+    /// Drop everything queued: after an index run the queued entry ids may name other files.
+    pub fn clear(&self) {
+        self.queue.replace(Vec::new(), Vec::new());
     }
 
     pub fn pending(&self) -> usize {
