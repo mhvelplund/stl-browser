@@ -1,4 +1,5 @@
 //! Extract one indexed file, following its chain through nested archives.
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::Path;
 
@@ -41,6 +42,40 @@ pub fn extract_entry(kind: SourceKind, source_path: &Path, chain: &[String], out
     }
     current.extract(last, &mut counter)?;
     Ok(counter.n)
+}
+
+/// Extract several files in one pass: follow the nested archive members `outer` from the source,
+/// then hand each of `raw_names` found in the innermost archive to `f`. For a folder source
+/// `outer` must be empty and the names are paths below `source_path`; missing files are skipped.
+pub fn extract_many_entries(
+    kind: SourceKind,
+    source_path: &Path,
+    outer: &[String],
+    raw_names: &HashSet<String>,
+    f: &mut dyn FnMut(&str, &[u8]) -> Result<(), ScanError>,
+) -> Result<(), ScanError> {
+    if kind == SourceKind::Folder {
+        if !outer.is_empty() {
+            return Err(ScanError::Format("a folder source has no nested archives".into()));
+        }
+        for name in raw_names {
+            match std::fs::read(source_path.join(name)) {
+                Ok(bytes) => f(name, &bytes)?,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        return Ok(());
+    }
+    let opts = ListOptions::default();
+    let mut current = archive::open(ArchiveInput::Path(source_path.to_path_buf()))?;
+    let mut _temps = Vec::new(); // spilled nested archives must outlive their readers
+    for member in outer {
+        let (next, temp) = open_member(current.as_mut(), member, &opts)?;
+        current = next;
+        _temps.push(temp);
+    }
+    current.extract_many(raw_names, f)
 }
 
 struct CountingWriter<'a> {

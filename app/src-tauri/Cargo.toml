@@ -27,6 +27,7 @@ serde_json = "1"
 stl-index = { path = "../../crates/stl-index" }
 stl-core = { path = "../../crates/stl-core" }
 stl-scan = { path = "../../crates/stl-scan" }
+stl-thumb = { path = "../../crates/stl-thumb" }
 rusqlite = "0.37"
 tauri-plugin-dialog = "2"
 

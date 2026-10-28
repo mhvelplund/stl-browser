@@ -43,6 +43,31 @@ fn models_view_lists_volume_collection_model() {
 }
 
 #[test]
+fn model_hero_entry_is_set() {
+    let tmp = tempfile::tempdir().unwrap();
+    kits(&tmp.path().join("Vol"));
+    let conn = indexed(tmp.path(), &["Vol"]);
+    let t = views::models_view(&conn).unwrap();
+    let kit = &t.nodes[at(&t, "vol/a/kit")].info;
+    assert!(kit.hero_key.as_deref().unwrap().ends_with("|Kit/Kit.jpg"), "{:?}", kit.hero_key);
+    assert!(kit.hero_entry_id.is_some());
+    assert_eq!(t.nodes[at(&t, "vol/a/two")].info.hero_key, None);
+}
+
+#[test]
+fn poster_is_the_hero_of_its_group_and_of_models_without_images() {
+    let tmp = tempfile::tempdir().unwrap();
+    kits(&tmp.path().join("Vol"));
+    put(&tmp.path().join("Vol"), "A/poster.jpg", b"p");
+    let conn = indexed(tmp.path(), &["Vol"]);
+    let t = views::models_view(&conn).unwrap();
+    let coll = &t.nodes[at(&t, "vol/a")].info;
+    assert!(coll.hero_key.as_deref().unwrap_or("").ends_with("poster.jpg"), "{:?}", coll.hero_key);
+    let two = &t.nodes[at(&t, "vol/a/two")].info;
+    assert!(two.hero_key.as_deref().unwrap_or("").ends_with("poster.jpg"), "{:?}", two.hero_key);
+}
+
+#[test]
 fn files_view_shows_archive_as_folder() {
     let tmp = tempfile::tempdir().unwrap();
     kits(&tmp.path().join("Vol"));

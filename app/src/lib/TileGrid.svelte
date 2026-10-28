@@ -1,7 +1,9 @@
 <script lang="ts">
   // A virtualized grid: only the rows in view (plus a few) are in the DOM.
   import { untrack } from "svelte";
+  import type { SvelteMap } from "svelte/reactivity";
   import type { Item, View } from "./api";
+  import { current } from "./carousel";
   import { columns, tileWidth, visibleRows } from "./grid";
   import Tile from "./Tile.svelte";
 
@@ -13,6 +15,10 @@
     onSelect,
     onOpen,
     onScroll,
+    urls,
+    chosen,
+    onSlot,
+    onVisible,
   }: {
     items: Item[];
     view: View;
@@ -22,6 +28,12 @@
     onSelect: (i: Item) => void;
     onOpen: (i: Item) => void;
     onScroll: (top: number) => void;
+    urls: SvelteMap<number, string | null>;
+    /** Slots picked this session, by item key. */
+    chosen: SvelteMap<string, number>;
+    onSlot: (i: Item, slot: number) => void;
+    /** The item index range that is rendered, `[first, last)`. */
+    onVisible: (r: { first: number; last: number }) => void;
   } = $props();
 
   const GAP = 8;
@@ -46,6 +58,12 @@
       return { r, tiles: items.slice(r * cols, (r + 1) * cols) };
     }),
   );
+
+  const first = $derived(range.first * cols);
+  const last = $derived(Math.min(items.length, range.last * cols));
+  $effect(() => {
+    onVisible({ first, last });
+  });
 
   $effect(() => {
     items;
@@ -75,7 +93,7 @@
         style:height="{rowHeight - GAP}px"
       >
         {#each row.tiles as item (item.name)}
-          <Tile {item} {view} selected={selected === item.name} {onSelect} {onOpen} />
+          <Tile {item} {view} selected={selected === item.name} slot={current(item, chosen)} {urls} {onSelect} {onOpen} {onSlot} />
         {/each}
       </div>
     {/each}

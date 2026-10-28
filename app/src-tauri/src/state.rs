@@ -1,12 +1,13 @@
 //! Shared app state managed by Tauri.
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use rusqlite::Connection;
 use stl_index::db;
 
 use crate::browse::{Views, build_views};
+use crate::thumbs::ThumbService;
 
 pub struct AppState {
     pub db: Mutex<Connection>,
@@ -15,6 +16,8 @@ pub struct AppState {
     views: RwLock<Option<Arc<Views>>>,
     /// Set while an index run is in progress.
     indexing: Arc<AtomicBool>,
+    /// Started at app setup (it needs the app handle for its events).
+    pub thumbs: OnceLock<ThumbService>,
 }
 
 /// Held by the one running index; clears the busy flag when dropped (also on panic).
@@ -30,7 +33,7 @@ impl AppState {
     /// Open `<app_dir>/index.db`, migrating it if needed.
     pub fn open(app_dir: PathBuf) -> rusqlite::Result<Self> {
         let conn = db::open(&app_dir.join("index.db"))?;
-        Ok(Self { db: Mutex::new(conn), app_dir, views: RwLock::new(None), indexing: Arc::default() })
+        Ok(Self { db: Mutex::new(conn), app_dir, views: RwLock::new(None), indexing: Arc::default(), thumbs: OnceLock::new() })
     }
 
     pub fn db_path(&self) -> PathBuf {

@@ -1,7 +1,12 @@
 <script lang="ts">
   import type { IndexProgress, Status } from "./api";
 
-  let { status, hint, progress }: { status: Status | null; hint: string; progress: IndexProgress | null } = $props();
+  let {
+    status,
+    hint,
+    progress,
+    thumbPending,
+  }: { status: Status | null; hint: string; progress: IndexProgress | null; thumbPending: number } = $props();
 
   const missing = $derived(status?.roots.filter((r) => r.missing) ?? []);
   const plural = (n: number, w: string) => `${n.toLocaleString()} ${w}${n === 1 ? "" : "s"}`;
@@ -26,6 +31,7 @@
       <span class="source" title={progress.name}>{progress.name}</span>
     </div>
   {/if}
+  <span class="mono">{thumbPending > 0 ? `Thumbnails: ${thumbPending.toLocaleString()} queued` : "Thumbnails up to date"}</span>
 </footer>
 
 <style>

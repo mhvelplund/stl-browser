@@ -16,7 +16,16 @@ export type Item = {
   models: number;
   files: number;
   images: number;
+  /** The composite's cells; empty when there is no composite slot. */
+  composite: Thumb[];
+  pics: Thumb[];
+  /** The saved (or default) slot in `[composite?, ...pics]`. */
+  slot: number;
 };
+
+export type Thumb = { entryId: number; key: string };
+
+export type ThumbReady = { entryId: number; url: string | null; pending: number };
 
 export type Listing = {
   view: View;
@@ -53,8 +62,13 @@ export const listFolder = (view: View, path: string[]) => invoke<Listing>("list_
 export const status = () => invoke<Status>("status");
 export const addFolder = (path: string) => invoke<RootInfo>("add_folder", { path });
 export const rescan = () => invoke<void>("rescan");
+export const requestThumbs = (high: number[], low: number[]) =>
+  invoke<{ ready: ThumbReady[]; pending: number }>("request_thumbs", { high, low });
+export const selectThumb = (nodeKey: string, imageKey: string) => invoke<void>("select_thumb", { nodeKey, imageKey });
 
 export const onIndexProgress = (cb: (p: IndexProgress) => void): Promise<UnlistenFn> =>
   listen<IndexProgress>("index-progress", (e) => cb(e.payload));
+export const onThumbReady = (cb: (r: ThumbReady) => void): Promise<UnlistenFn> =>
+  listen<ThumbReady>("thumb-ready", (e) => cb(e.payload));
 export const onIndexDone = (cb: (d: IndexDone) => void): Promise<UnlistenFn> =>
   listen<IndexDone>("index-done", (e) => cb(e.payload));
