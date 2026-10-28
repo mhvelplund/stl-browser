@@ -43,7 +43,7 @@ fn thumbs(tmp: &Path) -> PathBuf {
 fn touch(dir: &Path, rel: &str) {
     let p = dir.join(rel);
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-    std::fs::write(p, b"webp").unwrap();
+    std::fs::write(p, b"jpeg").unwrap();
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn record_then_ready() {
     let tmp = tempfile::tempdir().unwrap();
     let conn = indexed(tmp.path());
     let c = id(&conn, "c.png");
-    let rel = "0123456789abcdef/0123456789abcdef0123456789abcdef.webp";
+    let rel = "0123456789abcdef/0123456789abcdef0123456789abcdef.jpg";
     touch(&thumbs(tmp.path()), rel);
     assert!(record(&conn, &job(&conn, tmp.path(), c), &Ok(rel.to_string())).unwrap());
     let l = lookup(&conn, &thumbs(tmp.path()), &[c]).unwrap();
@@ -83,7 +83,7 @@ fn missing_file_is_not_a_hit() {
     let tmp = tempfile::tempdir().unwrap();
     let conn = indexed(tmp.path());
     let c = id(&conn, "c.png");
-    record(&conn, &job(&conn, tmp.path(), c), &Ok("0123456789abcdef/0123456789abcdef0123456789abcdef.webp".into())).unwrap();
+    record(&conn, &job(&conn, tmp.path(), c), &Ok("0123456789abcdef/0123456789abcdef0123456789abcdef.jpg".into())).unwrap();
     let l = lookup(&conn, &thumbs(tmp.path()), &[c]).unwrap();
     assert!(l.ready.is_empty());
     assert_eq!(l.jobs.len(), 1);
@@ -130,7 +130,7 @@ fn record_for_a_vanished_entry_is_ignored() {
     let conn = indexed(tmp.path());
     let mut j = job(&conn, tmp.path(), id(&conn, "c.png"));
     j.entry_id = 9999;
-    assert!(!record(&conn, &j, &Ok("0123456789abcdef/x.webp".into())).unwrap());
+    assert!(!record(&conn, &j, &Ok("0123456789abcdef/x.jpg".into())).unwrap());
     assert_eq!(rows(&conn), 0);
 }
 
@@ -144,7 +144,7 @@ fn stale_job_is_not_recorded_on_a_reused_id() {
     let mut old = job(&conn, tmp.path(), id(&conn, "Kit/a.png"));
     old.entry_id = b;
     assert!(!record(&conn, &old, &Err(Failure::Bad("not found in archive".into()))).unwrap());
-    assert!(!record(&conn, &old, &Ok("0123456789abcdef/x.webp".into())).unwrap());
+    assert!(!record(&conn, &old, &Ok("0123456789abcdef/x.jpg".into())).unwrap());
     assert_eq!(rows(&conn), 0);
     let l = lookup(&conn, &thumbs(tmp.path()), &[b]).unwrap();
     assert_eq!(l.jobs.len(), 1);
@@ -170,7 +170,7 @@ fn lookup_writes_in_one_transaction() {
     let conn = indexed(tmp.path());
     let ids = [id(&conn, "Kit/a.png"), id(&conn, "Kit/b.stl"), id(&conn, "c.png")];
     for &i in &ids {
-        record(&conn, &job(&conn, tmp.path(), i), &Ok("0123456789abcdef/0123456789abcdef0123456789abcdef.webp".into())).unwrap();
+        record(&conn, &job(&conn, tmp.path(), i), &Ok("0123456789abcdef/0123456789abcdef0123456789abcdef.jpg".into())).unwrap();
     }
     let commits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let seen = commits.clone();
@@ -183,4 +183,19 @@ fn lookup_writes_in_one_transaction() {
     assert_eq!(l.jobs.len(), 3);
     assert_eq!(rows(&conn), 0);
     assert_eq!(commits.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn legacy_webp_row_is_regenerated() {
+    // thumbnails were WebP before; their rows don't name a valid cache file any more
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = indexed(tmp.path());
+    let c = id(&conn, "c.png");
+    let old = "0123456789abcdef/0123456789abcdef0123456789abcdef.webp";
+    touch(&thumbs(tmp.path()), old);
+    conn.execute("INSERT INTO thumbs(entry_id, cache_rel, status) VALUES (?1, ?2, 'ok')", rusqlite::params![c, old]).unwrap();
+    let l = lookup(&conn, &thumbs(tmp.path()), &[c]).unwrap();
+    assert!(l.ready.is_empty());
+    assert_eq!(l.jobs.len(), 1);
+    assert_eq!(rows(&conn), 0);
 }
