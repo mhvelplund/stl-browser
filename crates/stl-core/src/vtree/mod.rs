@@ -53,6 +53,10 @@ pub struct Info {
     pub role: Option<String>,
     /// Archive format (`zip`, `rar`, `7z`) for archive folders and locked items.
     pub badge: Option<String>,
+    /// The entry of the hero image (a model's hero or fallback poster, a group's poster).
+    pub hero_entry_id: Option<i64>,
+    /// That entry's `f:` key.
+    pub hero_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -124,7 +124,7 @@ mod tests {
         assert_eq!(done.resolved, 1);
         assert_eq!(done.listed, 1);
         let v = views.unwrap();
-        let l = browse::list(&v, View::Files, &["vol".into(), "coll".into(), "elf".into()]);
+        let l = browse::list(&v, View::Files, &["vol".into(), "coll".into(), "elf".into()], &Default::default());
         assert_eq!(l.items.len(), 2);
     }
 
