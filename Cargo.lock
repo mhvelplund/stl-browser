@@ -79,6 +79,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stl-core",
+ "stl-drag",
  "stl-index",
  "stl-scan",
  "stl-thumb",
