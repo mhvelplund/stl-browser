@@ -3718,8 +3718,11 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "image",
+ "stl-scan",
  "stl_io",
+ "tempfile",
  "tobj",
+ "zip",
 ]
 
 [[package]]

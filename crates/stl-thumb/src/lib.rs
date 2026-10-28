@@ -1,5 +1,6 @@
 //! Thumbnails: cache naming, image scaling, STL/OBJ rendering, batch generation and the job queue.
 pub mod cache;
+pub mod generate;
 pub mod image;
 pub mod mesh;
 pub mod raster;
