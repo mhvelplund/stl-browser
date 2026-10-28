@@ -16,11 +16,14 @@ pub struct AppState {
     views: RwLock<Option<Arc<Views>>>,
     /// Set while an index run is in progress.
     indexing: Arc<AtomicBool>,
+    /// Set while an Extract to… runs.
+    extracting: Arc<AtomicBool>,
     /// Started at app setup (it needs the app handle for its events).
     pub thumbs: OnceLock<ThumbService>,
 }
 
-/// Held by the one running index; clears the busy flag when dropped (also on panic).
+/// Held by the one running index (or extraction); clears its busy flag when dropped (also on
+/// panic).
 pub struct IndexGuard(Arc<AtomicBool>);
 
 impl Drop for IndexGuard {
@@ -33,7 +36,7 @@ impl AppState {
     /// Open `<app_dir>/index.db`, migrating it if needed.
     pub fn open(app_dir: PathBuf) -> rusqlite::Result<Self> {
         let conn = db::open(&app_dir.join("index.db"))?;
-        Ok(Self { db: Mutex::new(conn), app_dir, views: RwLock::new(None), indexing: Arc::default(), thumbs: OnceLock::new() })
+        Ok(Self { db: Mutex::new(conn), app_dir, views: RwLock::new(None), indexing: Arc::default(), extracting: Arc::default(), thumbs: OnceLock::new() })
     }
 
     pub fn db_path(&self) -> PathBuf {
@@ -66,6 +69,14 @@ impl AppState {
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .ok()
             .map(|_| IndexGuard(self.indexing.clone()))
+    }
+
+    /// Claim the extraction, or `None` if one is already running.
+    pub fn try_begin_extract(&self) -> Option<IndexGuard> {
+        self.extracting
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| IndexGuard(self.extracting.clone()))
     }
 
     pub fn is_indexing(&self) -> bool {
