@@ -5,6 +5,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 
 pub use stl_scan::extract::SourceKind;
+use stl_scan::ScanError;
 use stl_scan::extract::extract_many_entries;
 
 use crate::cache::{cache_rel, content_hash, content_name, location_dir};
@@ -41,11 +42,55 @@ impl Job {
     }
 }
 
-/// `Ok(cache_rel)` or `Err(message)`.
-pub type Outcome = Result<String, String>;
+/// Why a job made no thumbnail.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Failure {
+    /// The file itself is the problem (corrupt, unsupported, too large, missing from its
+    /// archive): recorded, and not retried until the entry changes.
+    Bad(String),
+    /// The file couldn't be read right now (drive unplugged, file locked, disk full): not
+    /// recorded, so a later request tries again.
+    Unavailable(String),
+}
+
+impl Failure {
+    pub fn message(&self) -> &str {
+        match self {
+            Failure::Bad(m) | Failure::Unavailable(m) => m,
+        }
+    }
+}
+
+/// `Ok(cache_rel)` or why not.
+pub type Outcome = Result<String, Failure>;
+
+/// Reads the named members of a job group's archive (or folder), handing each to the callback.
+type Extract<'a> = dyn FnMut(&HashSet<String>, &mut dyn FnMut(&str, &[u8]) -> Result<(), ScanError>) -> Result<(), ScanError> + 'a;
+
+/// An i/o error that says "not now" rather than "this file is broken".
+fn unavailable(e: &std::io::Error) -> bool {
+    use std::io::ErrorKind::*;
+    // Windows: 21 device not ready, 32 sharing violation, 33 lock violation, 1167 device not connected
+    matches!(e.kind(), NotFound | PermissionDenied | Interrupted | WouldBlock | TimedOut | StorageFull)
+        || matches!(e.raw_os_error(), Some(21 | 32 | 33 | 1167))
+}
+
+fn scan_failure(e: &ScanError) -> Failure {
+    match e {
+        ScanError::Io(io) if unavailable(io) => Failure::Unavailable(e.to_string()),
+        _ => Failure::Bad(e.to_string()),
+    }
+}
 
 /// Make the thumbnails of `jobs`, which must share one `group()`; `done` is called once per job.
 pub fn generate(thumbs_dir: &Path, jobs: &[Job], done: &mut dyn FnMut(&Job, Outcome)) {
+    let Some(first) = jobs.first() else { return };
+    let outer = first.chain[..first.chain.len().saturating_sub(1)].to_vec();
+    let (kind, source) = (first.source_kind, first.source_path.clone());
+    generate_with(thumbs_dir, jobs, done, &mut |names, f| extract_many_entries(kind, Path::new(&source), &outer, names, f));
+}
+
+fn generate_with(thumbs_dir: &Path, jobs: &[Job], done: &mut dyn FnMut(&Job, Outcome), extract: &mut Extract<'_>) {
     let Some(first) = jobs.first() else { return };
     debug_assert!(jobs.iter().all(|j| j.group() == first.group()));
     let mut todo: HashMap<&str, Vec<&Job>> = HashMap::new();
@@ -54,12 +99,12 @@ pub fn generate(thumbs_dir: &Path, jobs: &[Job], done: &mut dyn FnMut(&Job, Outc
             Some(ThumbKind::Image) => MAX_IMAGE,
             Some(ThumbKind::Mesh) => MAX_MESH,
             None => {
-                done(job, Err("no thumbnail for this file type".into()));
+                done(job, Err(Failure::Bad("no thumbnail for this file type".into())));
                 continue;
             }
         };
         if job.size > cap {
-            done(job, Err("too large".into()));
+            done(job, Err(Failure::Bad("too large".into())));
             continue;
         }
         // with a stored CRC the cache name is known without reading the file
@@ -76,18 +121,22 @@ pub fn generate(thumbs_dir: &Path, jobs: &[Job], done: &mut dyn FnMut(&Job, Outc
         return;
     }
     let names: HashSet<String> = todo.keys().map(|n| n.to_string()).collect();
-    let outer = &first.chain[..first.chain.len() - 1];
     let mut seen: HashSet<String> = HashSet::new();
-    let result = extract_many_entries(first.source_kind, Path::new(&first.source_path), outer, &names, &mut |name, bytes| {
-        for job in todo.get(name).into_iter().flatten() {
-            done(job, make(thumbs_dir, job, bytes));
-        }
-        seen.insert(name.to_string());
-        Ok(())
-    });
+    // decompressing corrupt data can panic inside an archive library; the jobs not done yet
+    // then fail like any other unreadable member instead of hanging
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        extract(&names, &mut |name, bytes| {
+            for job in todo.get(name).into_iter().flatten() {
+                done(job, make(thumbs_dir, job, bytes));
+            }
+            seen.insert(name.to_string());
+            Ok(())
+        })
+    }));
     let missing = match result {
-        Ok(()) => "not found in archive".to_string(),
-        Err(e) => e.to_string(),
+        Ok(Ok(())) => Failure::Bad("not found in archive".into()),
+        Ok(Err(e)) => scan_failure(&e),
+        Err(_) => Failure::Bad("internal error while extracting".into()),
     };
     for (name, jobs) in &todo {
         if !seen.contains(*name) {
@@ -112,18 +161,20 @@ fn make(thumbs_dir: &Path, job: &Job, bytes: &[u8]) -> Outcome {
         Some(ThumbKind::Mesh) => load_mesh(job.name(), bytes).map(|t| render(&t)),
         None => Err("no thumbnail for this file type".into()),
     }))
-    .unwrap_or_else(|_| Err("internal error while decoding".into()))?;
-    let webp = encode_webp(&img)?;
-    let dir = path.parent().expect("cache_rel has a directory");
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    .unwrap_or_else(|_| Err("internal error while decoding".into()))
+    .map_err(Failure::Bad)?;
+    let webp = encode_webp(&img).map_err(Failure::Bad)?;
+    // writing the cache can fail for reasons that pass (disk full, a locked folder)
+    let io = |e: std::io::Error| Failure::Unavailable(e.to_string());
+    std::fs::create_dir_all(path.parent().expect("cache_rel has a directory")).map_err(io)?;
     // write then rename, so a reader never sees half a file
     let tmp = path.with_extension(format!("{}.tmp", job.entry_id));
-    std::fs::write(&tmp, &webp).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, &webp).map_err(io)?;
     if let Err(e) = std::fs::rename(&tmp, &path) {
         let _ = std::fs::remove_file(&tmp);
-        // another worker got there first (Windows won't rename over an existing file)
+        // another worker may have written the same file meanwhile
         if !path.is_file() {
-            return Err(e.to_string());
+            return Err(io(e));
         }
     }
     Ok(rel)
@@ -201,7 +252,7 @@ mod tests {
         let by_name = |n: &str| &out[&jobs.iter().find(|j| j.chain.last().unwrap() == n).unwrap().entry_id];
         assert!(by_name("good.png").is_ok());
         assert!(by_name("bad.jpg").is_err());
-        assert_eq!(by_name("empty.obj").as_ref().unwrap_err(), "no triangles");
+        assert_eq!(by_name("empty.obj").as_ref().unwrap_err(), &Failure::Bad("no triangles".into()));
     }
 
     #[test]
@@ -241,7 +292,7 @@ mod tests {
             size: 300 * 1024 * 1024,
             crc: "00000001".into(),
         };
-        assert_eq!(run(&tmp.path().join("thumbs"), &[job])[&1], Err("too large".to_string()));
+        assert_eq!(run(&tmp.path().join("thumbs"), &[job])[&1], Err(Failure::Bad("too large".into())));
     }
 
     #[test]
@@ -258,6 +309,47 @@ mod tests {
             crc: String::new(),
         };
         let out = run(&tmp.path().join("thumbs"), &[job(1, "a.png"), job(2, "b.png")]);
-        assert!(out[&1].is_err() && out[&2].is_err());
+        assert!(matches!(out[&1], Err(Failure::Bad(_))), "{:?}", out[&1]);
+        assert!(matches!(out[&2], Err(Failure::Bad(_))));
+    }
+
+    #[test]
+    fn missing_archive_is_unavailable_not_bad() {
+        // a drive that is unplugged right now: retry later, don't record a failure
+        let tmp = tempfile::tempdir().unwrap();
+        let job = Job {
+            entry_id: 1,
+            source_kind: SourceKind::Archive,
+            source_path: tmp.path().join("gone.zip").display().to_string(),
+            chain: vec!["a.png".into()],
+            size: 10,
+            crc: String::new(),
+        };
+        assert!(matches!(run(&tmp.path().join("thumbs"), &[job])[&1], Err(Failure::Unavailable(_))));
+    }
+
+    #[test]
+    fn extract_panic_fails_the_rest_of_the_batch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let job = |id: i64, n: &str| Job {
+            entry_id: id,
+            source_kind: SourceKind::Archive,
+            source_path: "D:/x.zip".into(),
+            chain: vec![n.into()],
+            size: 10,
+            crc: String::new(),
+        };
+        let jobs = [job(1, "a.png"), job(2, "b.png")];
+        let mut out = HashMap::new();
+        let png = png(4, 4);
+        generate_with(&tmp.path().join("thumbs"), &jobs, &mut |j, o| {
+            assert!(out.insert(j.entry_id, o).is_none());
+        }, &mut |_, f| {
+            f("a.png", &png)?;
+            panic!("corrupt stream");
+        });
+        assert_eq!(out.len(), 2);
+        assert!(out[&1].is_ok());
+        assert!(matches!(out[&2], Err(Failure::Bad(_))));
     }
 }
