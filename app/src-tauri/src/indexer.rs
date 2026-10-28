@@ -10,7 +10,7 @@ use stl_scan::nested::ListOptions;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::browse::{Views, build_views};
-use crate::state::AppState;
+use crate::state::{AppState, IndexGuard};
 
 /// `index-progress`: one per source; `index` is 1-based.
 #[derive(Debug, Clone, Serialize)]
@@ -83,9 +83,14 @@ pub fn run_index(db_path: &Path, progress: &mut dyn FnMut(IndexProgress)) -> (In
 
 /// Start an index run on a background thread, or refuse if one is running.
 pub fn start_index(app: AppHandle) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    let guard = state.try_begin_index().ok_or(BUSY)?;
-    let db_path = state.db_path();
+    let guard = app.state::<AppState>().try_begin_index().ok_or(BUSY)?;
+    start_index_with(app, guard);
+    Ok(())
+}
+
+/// Run the index on a background thread under a claim the caller already holds.
+pub fn start_index_with(app: AppHandle, guard: IndexGuard) {
+    let db_path = app.state::<AppState>().db_path();
     std::thread::spawn(move || {
         let _guard = guard;
         let (done, views) = run_index(&db_path, &mut |p| {
@@ -97,7 +102,6 @@ pub fn start_index(app: AppHandle) -> Result<(), String> {
         drop(_guard);
         let _ = app.emit("index-done", done);
     });
-    Ok(())
 }
 
 pub const BUSY: &str = "an index run is already in progress";

@@ -7,7 +7,7 @@ use stl_index::scanstore;
 
 use crate::browse::{self, Listing, View};
 use crate::indexer::{self, BUSY};
-use crate::state::AppState;
+use crate::state::{AppState, IndexGuard};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,7 +40,7 @@ pub fn list_folder_impl(state: &AppState, view: View, path: Vec<String>) -> Resu
 
 /// List the folder at `path` (name segments from the root); falls back to the deepest folder
 /// that still exists, and says so in `Listing::path`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_folder(state: tauri::State<'_, AppState>, view: View, path: Vec<String>) -> Result<Listing, String> {
     list_folder_impl(&state, view, path)
 }
@@ -87,7 +87,7 @@ pub fn status_impl(state: &AppState) -> Result<Status, String> {
     q().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn status(state: tauri::State<'_, AppState>) -> Result<Status, String> {
     status_impl(&state)
 }
@@ -98,25 +98,44 @@ pub fn rescan(app: tauri::AppHandle) -> Result<(), String> {
     indexer::start_index(app)
 }
 
+/// Claim the index run, then register the folder as a root. The claim is returned so the
+/// caller can hand it to the index worker: nothing can start in between.
+pub fn add_folder_impl(state: &AppState, path: &str) -> Result<(RootInfo, IndexGuard), String> {
+    let guard = state.try_begin_index().ok_or(BUSY)?;
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let id = scanstore::add_root(&conn, Path::new(path)).map_err(|e| e.to_string())?;
+    let info = conn
+        .query_row("SELECT id, name, path FROM roots WHERE id = ?", [id], |r| Ok(root_info(r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(|e| e.to_string())?;
+    Ok((info, guard))
+}
+
 /// Register a folder as a root, then index in the background.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn add_folder(app: tauri::AppHandle, state: tauri::State<'_, AppState>, path: String) -> Result<RootInfo, String> {
-    if state.is_indexing() {
-        return Err(BUSY.into());
-    }
-    let info = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let id = scanstore::add_root(&conn, Path::new(&path)).map_err(|e| e.to_string())?;
-        conn.query_row("SELECT id, name, path FROM roots WHERE id = ?", [id], |r| Ok(root_info(r.get(0)?, r.get(1)?, r.get(2)?)))
-            .map_err(|e| e.to_string())?
-    };
-    indexer::start_index(app)?;
+    let (info, guard) = add_folder_impl(&state, &path)?;
+    indexer::start_index_with(app, guard);
     Ok(info)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn add_folder_holds_the_index_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::open(dir.path().to_path_buf()).unwrap();
+        std::fs::create_dir_all(dir.path().join("a")).unwrap();
+        std::fs::create_dir_all(dir.path().join("b")).unwrap();
+        let (info, guard) = add_folder_impl(&state, &dir.path().join("a").display().to_string()).unwrap();
+        assert_eq!(info.name, "a");
+        // the claim is taken before the root is added, so a second add is refused and adds nothing
+        assert_eq!(add_folder_impl(&state, &dir.path().join("b").display().to_string()).err().as_deref(), Some(BUSY));
+        assert_eq!(status_impl(&state).unwrap().roots.len(), 1);
+        drop(guard);
+        assert!(add_folder_impl(&state, &dir.path().join("b").display().to_string()).is_ok());
+    }
 
     #[test]
     fn status_flags_missing_root() {

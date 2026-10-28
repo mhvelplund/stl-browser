@@ -4,6 +4,7 @@
   import { open as pickFolder } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
   import type { IndexDone, IndexProgress, Item, Listing, Status, View } from "$lib/api";
+  import { idle, step, type Run, type RunEvent } from "$lib/indexrun";
   import { folderSummary } from "$lib/items";
   import { goBack, goTo, open, settle, start, up, type Nav } from "$lib/nav";
   import StatusBar from "$lib/StatusBar.svelte";
@@ -16,8 +17,8 @@
   let selected = $state<string | null>(null);
   let status = $state<Status | null>(null);
   let progress = $state<IndexProgress | null>(null);
-  let busy = $state(false);
-  let hint = $state("");
+  let run = $state<Run>(idle);
+  const busy = $derived(run.busy);
   let error = $state("");
   /** Scroll to restore when the next listing arrives. */
   let restore = $state(0);
@@ -48,7 +49,7 @@
     try {
       status = await api.status();
     } catch (e) {
-      hint = `Status unavailable: ${e}`;
+      run = { ...run, hint: `Status unavailable: ${e}` };
     }
   }
 
@@ -65,39 +66,38 @@
     load(start());
   }
 
-  async function addFolder() {
+  const apply = (e: RunEvent) => (run = step(run, e));
+
+  /** Start a run: the hint is set before the call, because `index-done` may beat its reply. */
+  async function startRun(hint: string, call: () => Promise<unknown>) {
+    apply({ type: "start", hint });
     try {
-      const path = await pickFolder({ directory: true, multiple: false, title: "Add a folder to the index" });
-      if (typeof path !== "string") return;
-      busy = true;
-      const root = await api.addFolder(path);
-      hint = `Indexing ${root.path}…`;
-      await refreshStatus();
+      await call();
+      apply({ type: "accepted" });
     } catch (e) {
-      busy = false;
-      hint = `Could not add the folder: ${e}`;
+      apply({ type: "refused", error: String(e) });
     }
   }
 
-  async function rescan() {
+  async function addFolder() {
+    let path: string | string[] | null;
     try {
-      busy = true;
-      await api.rescan();
-      hint = "Rescanning all folders…";
+      path = await pickFolder({ directory: true, multiple: false, title: "Add a folder to the index" });
     } catch (e) {
-      busy = false;
-      hint = `Could not rescan: ${e}`;
+      run = { ...run, hint: `Could not open the folder picker: ${e}` };
+      return;
     }
+    if (typeof path !== "string") return;
+    const chosen = path;
+    await startRun(`Indexing ${chosen}…`, () => api.addFolder(chosen));
+    refreshStatus();
   }
+
+  const rescan = () => startRun("Rescanning all folders…", api.rescan);
 
   function done(d: IndexDone) {
-    busy = false;
     progress = null;
-    const warn = d.warnings.length ? ` · ${d.warnings.length} warning(s): ${d.warnings.join("; ")}` : "";
-    hint = d.ok
-      ? `Indexed ${d.sources} sources · ${d.listed} listed · ${d.removed} removed · ${d.errors} errors · ` +
-        `${d.models} models (${d.seconds.toFixed(1)} s)${warn}`
-      : `Index failed: ${d.error}`;
+    apply({ type: "done", done: d });
     refreshStatus();
     load(nav, scroll, true);
   }
@@ -115,13 +115,13 @@
   }
 
   const selectedItem = $derived(listing?.items.find((i) => i.name === selected) ?? null);
-  const footerHint = $derived(selectedItem ? selectedItem.real.join(" | ") : hint || usage);
+  const footerHint = $derived(selectedItem ? selectedItem.real.join(" | ") : run.hint || usage);
   const noRoots = $derived(status !== null && status.roots.length === 0);
 
   onMount(() => {
     const unlisten = [api.onIndexProgress((p) => (progress = p)), api.onIndexDone(done)];
     refreshStatus().then(() => {
-      if (status?.indexing) busy = true;
+      if (status?.indexing && !run.busy) apply({ type: "start", hint: "Indexing…" });
     });
     load(nav);
     return () => unlisten.forEach((u) => u.then((f) => f()));

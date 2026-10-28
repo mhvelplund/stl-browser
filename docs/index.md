@@ -264,11 +264,29 @@ From the milestone 3 review:
 - **The resolver merges same-stem archives** (`X.zip` + `x.rar`) into one model, as the prototype did. The
   `x_1`/`x_2` rule applies only to the Files view.
 
+From the milestone 4 review:
+
+- **Navigation can be lost under rapid input.** `nav` only changes when a listing arrives, so two quick Backspaces go
+  up one level, and an `index-done` reload that lands mid-navigation drops the click.
+- **`Listing.path` echoes the request's casing.** It's harmless today because the UI always sends tree names.
+- **"files" means two things on screen.** The footer counts every indexed entry, while the title and tiles count only
+  mesh files.
+- **Selecting a tile hides the last index result** in the status bar until the selection clears.
+- **UI polish:**
+  - Locked tiles are tinted, not dimmed.
+  - A view switch draws one frame with the old listing.
+  - After a fallback, the old scroll offset is restored.
+- **Keyboard and screen readers:**
+  - Tab can't reach tiles outside the rendered rows, and there are no arrow keys in the grid.
+  - The progress block's `role="status"` announces every source.
+- **Files view folders that hold only hidden files** show as empty folders. They are not pruned.
+
 ## Working notes
 
 - Run all tests with `cargo test --workspace`, `npm --prefix app test` and `npm --prefix app run check`.
 - To drive the running app from a script, start it with
-  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and talk CDP to `http://127.0.0.1:9222/json`. Run RAR against a real file with
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and talk CDP to `http://127.0.0.1:9222/json`.
+- Run RAR against a real file with
   `STL_BROWSER_RAR_FIXTURE=<file.rar> cargo test -p stl-scan --test rar -- --ignored`.
 - Dev CLI: `cargo run --release -p stl-index --bin stlx -- add <dir> | index | tree models|files [<path>] | parity
   <prototype.db> | extract <entry_id> <out>`. Set `STL_BROWSER_HOME` to keep test runs out of `~/.stl-browser`.
