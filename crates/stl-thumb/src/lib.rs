@@ -1,6 +1,11 @@
 //! Thumbnails: cache naming, image scaling, STL/OBJ rendering, batch generation and the job queue.
 pub mod cache;
 pub mod image;
+pub mod mesh;
+pub mod raster;
+
+#[cfg(test)]
+mod fixtures;
 
 /// Thumbnails are square, this many pixels on a side.
 pub const THUMB_SIZE: u32 = 128;
