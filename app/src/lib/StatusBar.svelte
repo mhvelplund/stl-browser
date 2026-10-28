@@ -1,12 +1,19 @@
 <script lang="ts">
-  import type { IndexProgress, Status } from "./api";
+  import type { ExtractProgress, IndexProgress, Status } from "./api";
 
   let {
     status,
     hint,
     progress,
     thumbPending,
-  }: { status: Status | null; hint: string; progress: IndexProgress | null; thumbPending: number } = $props();
+    extract,
+  }: {
+    status: Status | null;
+    hint: string;
+    progress: IndexProgress | null;
+    thumbPending: number;
+    extract: ExtractProgress | null;
+  } = $props();
 
   const missing = $derived(status?.roots.filter((r) => r.missing) ?? []);
   const plural = (n: number, w: string) => `${n.toLocaleString()} ${w}${n === 1 ? "" : "s"}`;
@@ -29,6 +36,13 @@
       <span>Indexing {progress.index} / {progress.total}</span>
       <div class="bar"><div style:width="{(100 * progress.index) / Math.max(1, progress.total)}%"></div></div>
       <span class="source" title={progress.name}>{progress.name}</span>
+    </div>
+  {/if}
+  {#if extract}
+    <div class="task">
+      <span>Extracting {extract.index} / {extract.total}</span>
+      <div class="bar"><div style:width="{(100 * extract.index) / Math.max(1, extract.total)}%"></div></div>
+      <span class="source" title={extract.name}>{extract.name}</span>
     </div>
   {/if}
   <span class="mono">{thumbPending > 0 ? `Thumbnails: ${thumbPending.toLocaleString()} queued` : "Thumbnails up to date"}</span>
