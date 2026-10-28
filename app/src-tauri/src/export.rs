@@ -307,4 +307,56 @@ mod tests {
         assert_eq!(out, b"o");
         assert!(c.write(0, &mut Vec::new()).is_err()); // a folder has no contents
     }
+
+    /// The whole drag pipeline on real data, dropped on the shell's own drop target for a temp
+    /// folder (what Explorer does on a real drop). Needs an indexed `STL_BROWSER_HOME` and
+    /// `STL_BROWSER_DRAG_CHECK="models|<folder/path>|<name>"`; prints where the files went.
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn drag_real_item_to_shell_folder() {
+        use std::time::{Duration, Instant};
+        use windows::Win32::Foundation::POINTL;
+        use windows::Win32::System::Ole::{DROPEFFECT_COPY, IDropTarget, OleInitialize, OleUninitialize};
+        use windows::Win32::System::SystemServices::{MK_LBUTTON, MODIFIERKEYS_FLAGS};
+        use windows::Win32::UI::Shell::{BHID_SFUIObject, IShellItem, SHCreateItemFromParsingName};
+        use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage};
+
+        let check = std::env::var("STL_BROWSER_DRAG_CHECK").expect("STL_BROWSER_DRAG_CHECK");
+        let parts: Vec<&str> = check.split('|').collect();
+        let view = if parts[0] == "files" { View::Files } else { View::Models };
+        let path: Vec<String> = parts[1].split('/').map(String::from).collect();
+        let state = AppState::open(stl_index::paths::app_dir()).unwrap();
+        let (files, _) = build_export(&state, view, &path, &[parts[2].to_string()]).unwrap();
+        let want: Vec<(String, u64)> = files.iter().filter(|f| !f.is_dir).map(|f| (f.rel.clone(), f.loc.as_ref().unwrap().size.unwrap())).collect();
+        let prepared = drag::prepare(files).unwrap();
+        let dest = tempfile::tempdir().unwrap().keep();
+        let d = dest.clone();
+        let t = Instant::now();
+        std::thread::spawn(move || unsafe {
+            OleInitialize(None).unwrap();
+            let obj = prepared.data_object().unwrap();
+            let item: IShellItem = SHCreateItemFromParsingName(&windows_core::HSTRING::from(d.as_os_str()), None).unwrap();
+            let target: IDropTarget = item.BindToHandler(None, &BHID_SFUIObject).unwrap();
+            let mut effect = DROPEFFECT_COPY;
+            target.DragEnter(&obj, MODIFIERKEYS_FLAGS(MK_LBUTTON.0), POINTL::default(), &mut effect).unwrap();
+            target.Drop(&obj, MODIFIERKEYS_FLAGS(0), POINTL::default(), &mut effect).unwrap();
+            drop((obj, target, item));
+            let size = |rel: &str| std::fs::metadata(d.join(rel)).map(|m| m.len()).ok();
+            while want.iter().any(|(rel, n)| size(rel) != Some(*n)) && t.elapsed() < Duration::from_secs(300) {
+                let mut msg = MSG::default();
+                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            let missing: Vec<_> = want.iter().filter(|(rel, n)| size(rel) != Some(*n)).collect();
+            assert!(missing.is_empty(), "not copied (or wrong size): {missing:?}");
+            OleUninitialize();
+        })
+        .join()
+        .unwrap();
+        println!("dropped into {} in {:.1} s", dest.display(), t.elapsed().as_secs_f64());
+    }
 }
