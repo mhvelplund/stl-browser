@@ -246,3 +246,22 @@ fn file_server_respects_the_cache_limit() {
     assert_eq!(server.batches(), 1);
     assert_eq!(server.session_opens(), 1); // c.stl didn't fit the cache
 }
+
+#[test]
+fn cancel_stops_a_7z_pass() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = indexed_7z(tmp.path());
+    let files = resolve_plan(&conn, &plan_7z(&conn)).unwrap();
+    let out = tmp.path().join("out");
+    let cancel = AtomicBool::new(false);
+    let mut names = Vec::new();
+    // stop once the 7z's first file is written
+    let r = write_tree(&out, &files, &mut ExtractSession::new(), &mut |_, rel| {
+        names.push(rel.to_string());
+        if rel == "p/a.stl" {
+            cancel.store(true, Ordering::SeqCst);
+        }
+    }, &cancel);
+    assert_eq!(r.files, 1, "{names:?}");
+    assert!(!out.join("p/b.stl").exists());
+}

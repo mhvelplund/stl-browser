@@ -25,6 +25,7 @@
     slot: number;
     urls: SvelteMap<number, string | null>;
     onSelect: (i: Item) => void;
+    /** Double-click or Enter: a folder opens in the grid, a file in its Windows app. */
     onOpen: (i: Item) => void;
     onSlot: (i: Item, slot: number) => void;
     /** The pointer dragged this tile far enough to start a drag out of the window. */
@@ -54,7 +55,7 @@
     if (e.key === "Enter") {
       e.preventDefault();
       onSelect(item);
-      if (item.openable) onOpen(item);
+      onOpen(item);
     }
   }
 
@@ -72,7 +73,7 @@
     aria-pressed={selected}
     title={item.real.join("\n")}
     onclick={() => onSelect(item)}
-    ondblclick={() => item.openable && onOpen(item)}
+    ondblclick={() => onOpen(item)}
     onkeydown={key}
     onpointerdown={(e) => (pressed = press({ button: e.button, x: e.clientX, y: e.clientY, pointerId: e.pointerId }))}
     onpointermove={pointerMove}

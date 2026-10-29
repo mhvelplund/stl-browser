@@ -254,3 +254,55 @@ fn inner_root_is_covered_by_outer() {
     assert_eq!((s.scan.removed, s.scan.listed), (0, 0));
     assert_eq!(count(&f.conn, &outer_only), 0);
 }
+
+fn scan_run(f: &mut Fixture, run: &scanstore::ScanRun) -> ScanStats {
+    scanstore::scan_root_run(&mut f.conn, f.root_id, &ListOptions::default(), run, &mut |_| {}).unwrap()
+}
+
+#[test]
+fn scoped_scan_touches_only_the_scope() {
+    let mut f = fixture();
+    put(&f.root, "B/three.zip", &zip(&[("c.stl", b"c")]));
+    scan(&mut f).unwrap();
+    // change a source in each collection, and delete one outside the scope
+    put(&f.root, "A/two.zip", &zip(&[("b.stl", b"b"), ("b2.stl", b"bb")]));
+    put(&f.root, "B/three.zip", &zip(&[("c.stl", b"c"), ("c2.stl", b"cc")]));
+    std::fs::remove_file(f.root.join("A/one.zip")).unwrap();
+    let scope = vec![f.root.join("B")];
+    let s = scan_run(&mut f, &scanstore::ScanRun { scope: Some(&scope), ..Default::default() });
+    assert_eq!((s.listed, s.removed), (1, 0));
+    assert_eq!(entries_of(&f.conn, "three.zip"), 2);
+    assert_eq!(entries_of(&f.conn, "two.zip"), 1);
+    assert_eq!(entries_of(&f.conn, "one.zip"), 2);
+}
+
+#[test]
+fn scope_inside_an_archive_or_below_a_folder_source() {
+    let mut f = fixture();
+    scan(&mut f).unwrap();
+    put(&f.root, "A/two.zip", &zip(&[("b.stl", b"b"), ("b2.stl", b"bb")]));
+    put(&f.root, "A/loose2.stl", b"l2");
+    // the archive itself is the scope: only it is re-listed
+    let scope = vec![f.root.join("A/two.zip")];
+    let s = scan_run(&mut f, &scanstore::ScanRun { scope: Some(&scope), ..Default::default() });
+    assert_eq!(s.listed, 1);
+    assert_eq!(entries_of(&f.conn, "two.zip"), 2);
+    // a folder below a folder source rescans that folder source
+    let scope = vec![f.root.join("A/sub")];
+    let s = scan_run(&mut f, &scanstore::ScanRun { scope: Some(&scope), ..Default::default() });
+    assert_eq!(s.listed, 1);
+    assert_eq!(entries_of(&f.conn, r"\A"), 2);
+}
+
+#[test]
+fn cancelled_scan_lists_nothing_more_and_deletes_nothing() {
+    let mut f = fixture();
+    scan(&mut f).unwrap();
+    std::fs::remove_file(f.root.join("A/one.zip")).unwrap();
+    put(&f.root, "A/two.zip", &zip(&[("b.stl", b"b"), ("b2.stl", b"bb")]));
+    let cancel = std::sync::atomic::AtomicBool::new(true);
+    let s = scan_run(&mut f, &scanstore::ScanRun { cancel: Some(&cancel), ..Default::default() });
+    assert!(s.cancelled);
+    assert_eq!((s.listed, s.removed), (0, 0));
+    assert_eq!(entries_of(&f.conn, "one.zip"), 2);
+}

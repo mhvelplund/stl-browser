@@ -90,6 +90,7 @@ dependencies = [
  "tempfile",
  "windows",
  "windows-core",
+ "zip",
 ]
 
 [[package]]

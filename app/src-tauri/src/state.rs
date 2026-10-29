@@ -18,6 +18,10 @@ pub struct AppState {
     indexing: Arc<AtomicBool>,
     /// Set while an Extract to… runs.
     extracting: Arc<AtomicBool>,
+    /// Set to stop the running index after its current source; cleared when a run starts.
+    pub cancel_index: Arc<AtomicBool>,
+    /// Set to stop the running Extract to…; cleared when one starts.
+    pub cancel_extract: Arc<AtomicBool>,
     /// Started at app setup (it needs the app handle for its events).
     pub thumbs: OnceLock<ThumbService>,
 }
@@ -36,7 +40,16 @@ impl AppState {
     /// Open `<app_dir>/index.db`, migrating it if needed.
     pub fn open(app_dir: PathBuf) -> rusqlite::Result<Self> {
         let conn = db::open(&app_dir.join("index.db"))?;
-        Ok(Self { db: Mutex::new(conn), app_dir, views: RwLock::new(None), indexing: Arc::default(), extracting: Arc::default(), thumbs: OnceLock::new() })
+        Ok(Self {
+            db: Mutex::new(conn),
+            app_dir,
+            views: RwLock::new(None),
+            indexing: Arc::default(),
+            extracting: Arc::default(),
+            cancel_index: Arc::default(),
+            cancel_extract: Arc::default(),
+            thumbs: OnceLock::new(),
+        })
     }
 
     pub fn db_path(&self) -> PathBuf {
@@ -65,18 +78,16 @@ impl AppState {
 
     /// Claim the index run, or `None` if one is already running.
     pub fn try_begin_index(&self) -> Option<IndexGuard> {
-        self.indexing
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .ok()
-            .map(|_| IndexGuard(self.indexing.clone()))
+        self.indexing.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).ok()?;
+        self.cancel_index.store(false, Ordering::SeqCst);
+        Some(IndexGuard(self.indexing.clone()))
     }
 
     /// Claim the extraction, or `None` if one is already running.
     pub fn try_begin_extract(&self) -> Option<IndexGuard> {
-        self.extracting
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .ok()
-            .map(|_| IndexGuard(self.extracting.clone()))
+        self.extracting.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).ok()?;
+        self.cancel_extract.store(false, Ordering::SeqCst);
+        Some(IndexGuard(self.extracting.clone()))
     }
 
     pub fn is_indexing(&self) -> bool {
@@ -97,6 +108,23 @@ mod tests {
         assert!(state.try_begin_index().is_none());
         drop(g);
         assert!(!state.is_indexing());
+    }
+
+    #[test]
+    fn a_new_run_clears_an_old_cancel() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::open(dir.path().to_path_buf()).unwrap();
+        let g = state.try_begin_index().unwrap();
+        state.cancel_index.store(true, Ordering::SeqCst);
+        // a refused claim leaves the running one's cancel alone
+        assert!(state.try_begin_index().is_none());
+        assert!(state.cancel_index.load(Ordering::SeqCst));
+        drop(g);
+        let _g = state.try_begin_index().unwrap();
+        assert!(!state.cancel_index.load(Ordering::SeqCst));
+        state.cancel_extract.store(true, Ordering::SeqCst);
+        let _e = state.try_begin_extract().unwrap();
+        assert!(!state.cancel_extract.load(Ordering::SeqCst));
     }
 
     #[test]

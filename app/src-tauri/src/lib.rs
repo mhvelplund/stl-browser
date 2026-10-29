@@ -34,6 +34,9 @@ pub fn run() {
             });
         })
         .setup(|app| {
+            // files opened from archives last time; one still open in its app stays (Windows
+            // won't delete it), and is retried next start
+            let _ = std::fs::remove_dir_all(export::open_dir());
             match state::AppState::open(stl_index::paths::app_dir()) {
                 Ok(s) => {
                     let handle = app.handle().clone();
@@ -57,13 +60,17 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::list_folder,
+            commands::locate,
             commands::status,
             commands::rescan,
+            commands::cancel_index,
             commands::add_folder,
             commands::select_thumb,
             commands::request_thumbs,
             export::begin_drag,
-            export::extract_to
+            export::extract_to,
+            export::cancel_extract,
+            export::open_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -10,7 +10,7 @@ use stl_core::names::Kind;
 use stl_core::resolve::{AssetRole, Entry, Resolution, resolve};
 use stl_scan::nested::ListOptions;
 
-use crate::scanstore::{self, IndexError, Progress, ScanStats};
+use crate::scanstore::{self, IndexError, Progress, ScanRun, ScanStats};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IndexStats {
@@ -29,12 +29,24 @@ pub fn index_all(
     opts: &ListOptions,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<IndexStats, IndexError> {
-    index_all_with(conn, opts, progress, &resolve)
+    index_run(conn, opts, &ScanRun::default(), progress)
+}
+
+/// `index_all` over the part of the roots that `run` covers. A cancelled run still resolves
+/// the collections it changed, then skips the remaining roots.
+pub fn index_run(
+    conn: &mut Connection,
+    opts: &ListOptions,
+    run: &ScanRun,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<IndexStats, IndexError> {
+    index_all_with(conn, opts, run, progress, &resolve)
 }
 
 fn index_all_with(
     conn: &mut Connection,
     opts: &ListOptions,
+    run: &ScanRun,
     progress: &mut dyn FnMut(Progress),
     resolver: &Resolver,
 ) -> Result<IndexStats, IndexError> {
@@ -47,7 +59,7 @@ fn index_all_with(
         if scanstore::covering_root(conn, root_id)?.is_some() {
             continue;
         }
-        let s = match scanstore::scan_root(conn, root_id, opts, progress) {
+        let s = match scanstore::scan_root_run(conn, root_id, opts, run, progress) {
             Ok(s) => s,
             Err(IndexError::RootMissing(p)) => {
                 progress(Progress::Warning(&format!("folder not found: {}", p.display())));
@@ -73,6 +85,9 @@ fn index_all_with(
             stats.resolved += 1;
         }
         stats.scan.add(&s);
+        if s.cancelled {
+            break;
+        }
     }
     purge_orphans(conn)?;
     stats.models = conn.query_row("SELECT count(*) FROM models", [], |r| r.get::<_, i64>(0))? as usize;
@@ -316,7 +331,7 @@ mod tests {
             resolve(name, entries)
         };
         let mut warnings = Vec::new();
-        let s = index_all_with(&mut conn, &ListOptions::default(), &mut |p| {
+        let s = index_all_with(&mut conn, &ListOptions::default(), &ScanRun::default(), &mut |p| {
             if let Progress::Warning(w) = p {
                 warnings.push(w.to_string());
             }
@@ -327,7 +342,7 @@ mod tests {
         let b: i64 = conn.query_row("SELECT count(*) FROM models WHERE collection = 'Vol/B'", [], |r| r.get(0)).unwrap();
         assert_eq!(b, 2);
         // not retried (and re-panicking) until one of its sources changes
-        let s = index_all_with(&mut conn, &ListOptions::default(), &mut |_| {}, &resolver).unwrap();
+        let s = index_all_with(&mut conn, &ListOptions::default(), &ScanRun::default(), &mut |_| {}, &resolver).unwrap();
         assert_eq!(s.resolved, 0);
     }
 }

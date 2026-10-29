@@ -65,7 +65,8 @@
     askThumbs();
   }
 
-  const usage = "Double-click a tile to open it · Backspace goes up · hover a tile to see where it really is";
+  const usage =
+    "Double-click a tile to open it · Backspace or the mouse Back button goes up · hover a tile to see where it really is";
 
   /** List `next.path`; a stale response (the user moved on) is dropped. */
   async function load(next: Nav, scrollTo = 0, keepSelection = false) {
@@ -94,17 +95,39 @@
     }
   }
 
-  const openItem = (i: Item) => i.openable && load(open(nav, i.name, scroll));
+  /** A folder opens in the grid; a file in its Windows app. */
+  function openItem(i: Item) {
+    if (i.openable) load(open(nav, i.name, scroll));
+    else if (i.kind !== "locked") launch(i);
+  }
+
+  async function launch(item: Item) {
+    notice = `Opening ${item.name}…`;
+    try {
+      await api.openFile(view, nav.path, item.name);
+      notice = `Opened ${item.name}`;
+    } catch (e) {
+      notice = `Could not open ${item.name}: ${e}`;
+    }
+  }
+
   const goUp = () => nav.path.length && load(up(nav, scroll));
   const crumb = (path: string[]) => load(goTo(nav, path, scroll));
   function back() {
     const b = goBack(nav);
     if (b) load(b.nav, b.scroll);
   }
-  function switchView(v: View) {
+  /** Switch views, landing on the folder that matches this one. */
+  async function switchView(v: View) {
     if (v === view) return;
+    let path: string[] = [];
+    try {
+      path = await api.locate(view, nav.path, v);
+    } catch {
+      // the library root
+    }
     view = v;
-    load(start());
+    load({ path, back: [] });
   }
 
   const apply = (e: RunEvent) => (run = step(run, e));
@@ -134,7 +157,23 @@
     refreshStatus();
   }
 
-  const rescan = () => startRun("Rescanning all folders…", api.rescan);
+  /** Rescan the folder at `path` (everything at the library root). */
+  function rescanAt(path: string[]) {
+    const hint = path.length ? `Rescanning ${path.at(-1)}…` : "Rescanning all folders…";
+    return startRun(hint, () => api.rescan(view, path));
+  }
+  const rescan = () => rescanAt(nav.path);
+
+  /** Make a file the picture of the open folder. */
+  async function useAsFolderThumb(item: Item) {
+    if (!listing?.key) return;
+    try {
+      await api.selectThumb(listing.key, item.key);
+      notice = `${item.name} is now the picture of ${listing.name}`;
+    } catch (e) {
+      notice = `Could not save the thumbnail choice: ${e}`;
+    }
+  }
 
   function select(i: Item) {
     selected = i.name;
@@ -172,8 +211,12 @@
 
   function showMenu(item: Item, x: number, y: number) {
     const entries: Entry[] = [];
-    if (item.openable) entries.push({ label: "Open", action: () => openItem(item) });
+    if (item.kind !== "locked") entries.push({ label: "Open", action: () => openItem(item) });
     if (item.kind !== "locked") entries.push({ label: "Extract to…", action: () => extract(item) });
+    if (item.openable && !busy) entries.push({ label: "Rescan", action: () => rescanAt([...nav.path, item.name]) });
+    if (!item.openable && item.pics.length && listing?.key) {
+      entries.push({ label: "Use as folder thumbnail", action: () => useAsFolderThumb(item) });
+    }
     menu = entries.length ? { x, y, entries } : null;
   }
 
@@ -196,6 +239,19 @@
       back();
     }
   }
+
+  /** The mouse Back button (button 3) goes up; its default would be the webview's history. */
+  function onMouse(e: MouseEvent) {
+    if (e.button !== 3) return;
+    e.preventDefault();
+    if (e.type === "mouseup") {
+      menu = null;
+      goUp();
+    }
+  }
+
+  const stop = (call: () => Promise<void>) => () =>
+    call().catch((e) => (notice = `Could not stop: ${e}`));
 
   const selectedItem = $derived(listing?.items.find((i) => i.name === selected) ?? null);
   const footerHint = $derived(notice || (selectedItem ? selectedItem.real.join(" | ") : run.hint || usage));
@@ -223,7 +279,7 @@
   });
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onmousedown={onMouse} onmouseup={onMouse} />
 
 <div class="app">
   <Toolbar
@@ -278,7 +334,15 @@
       {/if}
     {/if}
   </main>
-  <StatusBar {status} hint={footerHint} {progress} {thumbPending} extract={extracting} />
+  <StatusBar
+    {status}
+    hint={footerHint}
+    {progress}
+    {thumbPending}
+    extract={extracting}
+    onStopIndex={stop(api.cancelIndex)}
+    onStopExtract={stop(api.cancelExtract)}
+  />
 </div>
 {#if menu}
   <ContextMenu x={menu.x} y={menu.y} entries={menu.entries} onClose={() => (menu = null)} />

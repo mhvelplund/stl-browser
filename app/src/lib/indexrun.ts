@@ -17,6 +17,9 @@ const n = (count: number, word: string) => `${count} ${word}${count === 1 ? "" :
 
 function doneHint(d: IndexDone): string {
   if (!d.ok) return `Index failed: ${d.error}`;
+  if (d.cancelled) {
+    return `Stopped: ${d.listed} listed · ${n(d.errors, "error")} · ${n(d.models, "model")} (${d.seconds.toFixed(1)} s)`;
+  }
   const warn = d.warnings.length ? ` · ${n(d.warnings.length, "warning")}: ${d.warnings.join("; ")}` : "";
   return (
     `Indexed ${n(d.sources, "source")} · ${d.listed} listed · ${d.removed} removed · ${n(d.errors, "error")} · ` +

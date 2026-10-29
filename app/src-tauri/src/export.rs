@@ -2,13 +2,14 @@
 //! them. A drag hands Explorer virtual files (`stl-drag`); Extract to… writes them to a folder
 //! on a background thread with `extract-progress` / `extract-done` events.
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use serde::Serialize;
 use stl_core::vtree::NodeId;
 use stl_core::vtree::export::export_plan;
 use stl_index::export::{ExportFile, resolve_plan, unique_dest, write_tree};
+use stl_scan::extract::SourceKind;
 use stl_scan::session::ExtractSession;
 use tauri::{AppHandle, Emitter};
 
@@ -73,11 +74,19 @@ pub struct ExtractDone {
     /// Where the first item went.
     pub dest: String,
     pub seconds: f64,
+    /// Stopped by the user before every file was written.
+    pub cancelled: bool,
 }
 
 /// Write `files` into `dest_dir`, renaming each top-level item that already exists there to
 /// `name (2)`… so nothing is overwritten.
-pub fn extract_worker(files: Vec<ExportFile>, skipped: u32, dest_dir: &Path, progress: &mut dyn FnMut(ExtractProgress)) -> ExtractDone {
+pub fn extract_worker(
+    files: Vec<ExportFile>,
+    skipped: u32,
+    dest_dir: &Path,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(ExtractProgress),
+) -> ExtractDone {
     let t = Instant::now();
     let mut renamed: Vec<(String, String)> = Vec::new();
     let mut first: Option<PathBuf> = None;
@@ -104,7 +113,7 @@ pub fn extract_worker(files: Vec<ExportFile>, skipped: u32, dest_dir: &Path, pro
     }
     let total = files.len();
     let mut session = ExtractSession::new();
-    let r = write_tree(dest_dir, &files, &mut session, &mut |i, rel| progress(ExtractProgress { index: i + 1, total, name: rel.to_string() }), &AtomicBool::new(false));
+    let r = write_tree(dest_dir, &files, &mut session, &mut |i, rel| progress(ExtractProgress { index: i + 1, total, name: rel.to_string() }), cancel);
     ExtractDone {
         ok: r.failed.is_empty(),
         error: None,
@@ -114,6 +123,7 @@ pub fn extract_worker(files: Vec<ExportFile>, skipped: u32, dest_dir: &Path, pro
         failed: r.failed,
         dest: first.map(|p| p.display().to_string()).unwrap_or_else(|| dest_dir.display().to_string()),
         seconds: t.elapsed().as_secs_f64(),
+        cancelled: cancel.load(Ordering::SeqCst),
     }
 }
 
@@ -127,10 +137,11 @@ pub fn extract_to(app: AppHandle, state: tauri::State<'_, AppState>, view: View,
     if !dest.is_dir() {
         return Err(format!("{} is not a folder", dest.display()));
     }
+    let cancel = state.cancel_extract.clone();
     std::thread::spawn(move || {
         let _guard = guard;
         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            extract_worker(files, skipped, &dest, &mut |p| {
+            extract_worker(files, skipped, &dest, &cancel, &mut |p| {
                 let _ = app.emit("extract-progress", p);
             })
         }))
@@ -138,6 +149,49 @@ pub fn extract_to(app: AppHandle, state: tauri::State<'_, AppState>, view: View,
         let _ = app.emit("extract-done", done);
     });
     Ok(())
+}
+
+/// Stop the running Extract to… before its next file.
+#[tauri::command]
+pub fn cancel_extract(state: tauri::State<'_, AppState>) {
+    state.cancel_extract.store(true, Ordering::SeqCst);
+}
+
+/// The folder that files opened from archives are written to; emptied at app start.
+pub fn open_dir() -> PathBuf {
+    std::env::temp_dir().join("stl-browser-open")
+}
+
+/// A path to open the file `name` (in the folder at `path` of `view`) from: a loose file's own
+/// path, or a copy of an archive member written to a new folder below `tmp`.
+pub fn stage_for_open(state: &AppState, view: View, path: &[String], name: &str, tmp: &Path) -> Result<PathBuf, String> {
+    let (files, skipped) = build_export(state, view, path, &[name.to_string()])?;
+    let f = match files.as_slice() {
+        [f] if !f.is_dir => f,
+        [] if skipped > 0 => return Err(format!("{name} is locked")),
+        _ => return Err(format!("{name} is not a file")),
+    };
+    let loc = f.loc.as_ref().ok_or("the file is no longer in the index")?;
+    if loc.kind == SourceKind::Folder {
+        let rel = loc.chain.first().ok_or("the file has no path")?;
+        return Ok(rel.split('/').fold(PathBuf::from(&loc.source_path), |p, part| p.join(part)));
+    }
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let dir = tmp.join(nanos.to_string());
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let r = write_tree(&dir, &files, &mut ExtractSession::new(), &mut |_, _| {}, &AtomicBool::new(false));
+    if let Some((_, e)) = r.failed.first() {
+        return Err(e.clone());
+    }
+    Ok(dir.join(&f.rel))
+}
+
+/// Open the file `name` (in the folder at `path` of `view`) in its Windows app; a file in an
+/// archive is extracted to a temp folder first.
+#[tauri::command(async)]
+pub fn open_file(state: tauri::State<'_, AppState>, view: View, path: Vec<String>, name: String) -> Result<(), String> {
+    let p = stage_for_open(&state, view, &path, &name, &open_dir())?;
+    tauri_plugin_opener::open_path(&p, None::<&str>).map_err(|e| e.to_string())
 }
 
 /// What a drag carries.
@@ -230,6 +284,35 @@ mod tests {
     }
 
     #[test]
+    fn a_loose_file_opens_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let tmp = dir.path().join("open");
+        let p = stage_for_open(&state, View::Files, &segs(&["vol", "coll", "orc"]), "orc.stl", &tmp).unwrap();
+        assert_eq!(p, dir.path().join("lib/Vol/Coll/Orc/orc.stl"));
+        assert!(!tmp.exists());
+        assert!(stage_for_open(&state, View::Files, &segs(&["vol", "coll"]), "orc", &tmp).is_err());
+    }
+
+    #[test]
+    fn an_archive_member_is_written_to_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        w.start_file("kit/k.stl", zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut w, b"kk").unwrap();
+        std::fs::write(dir.path().join("lib/Vol/Coll/Kit.zip"), w.finish().unwrap().into_inner()).unwrap();
+        let (done, views) = crate::indexer::run_index(&state.db_path(), None, &AtomicBool::new(false), &mut |_| {});
+        assert!(done.ok, "{:?}", done.error);
+        state.set_views(views.unwrap());
+        let tmp = dir.path().join("open");
+        let p = stage_for_open(&state, View::Files, &segs(&["vol", "coll", "kit", "kit"]), "k.stl", &tmp).unwrap();
+        assert!(p.starts_with(&tmp), "{}", p.display());
+        assert_eq!(p.file_name().unwrap(), "k.stl");
+        assert_eq!(std::fs::read(&p).unwrap(), b"kk");
+    }
+
+    #[test]
     fn nodes_for_finds_named_children() {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
@@ -269,7 +352,7 @@ mod tests {
         let run = || {
             let (files, skipped) = build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc", "elf"])).unwrap();
             let mut seen = 0;
-            let done = extract_worker(files, skipped, &out, &mut |p| {
+            let done = extract_worker(files, skipped, &out, &AtomicBool::new(false), &mut |p| {
                 seen += 1;
                 assert_eq!(p.index, seen);
                 assert_eq!(p.total, 5);

@@ -1,6 +1,7 @@
 //! Folder listings for the UI, served from the cached view trees, with each item's carousel:
 //! an optional composite (slot 0) and the pictures nested in it.
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -93,6 +94,8 @@ pub struct Listing {
     pub path: Vec<String>,
     /// `""` at the root.
     pub name: String,
+    /// The listed folder's node key (what a saved thumbnail choice is stored under).
+    pub key: String,
     pub real: Vec<String>,
     pub models: u32,
     pub files: u32,
@@ -133,42 +136,77 @@ fn leaf_thumb(n: &Node) -> Option<(ThumbKind, Thumb)> {
     Some((thumb_kind(&n.name)?, Thumb { entry_id: n.info.entry_id?, key: n.key.clone() }))
 }
 
-/// Up to `cap` files of `kind` below `id`, depth-first in tree order, one per entry.
-fn nested(t: &Tree, id: NodeId, kind: ThumbKind, cap: usize) -> Vec<Thumb> {
-    let (mut out, mut seen) = (Vec::new(), HashSet::new());
+/// The file with this key below `id`, if it has a thumbnail.
+fn find_leaf(t: &Tree, id: NodeId, key: &str) -> Option<(ThumbKind, Thumb)> {
     let mut stack = vec![id];
     while let Some(n) = stack.pop() {
-        if out.len() >= cap {
+        let node = &t.nodes[n];
+        if is_file_kind(node.kind) {
+            if node.key == key {
+                return leaf_thumb(node);
+            }
+        } else {
+            stack.extend(node.children.iter().rev());
+        }
+    }
+    None
+}
+
+/// The picture saved for folder `id`, if it is still a file below it (`composite` is not one).
+fn chosen_pic(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> Option<(ThumbKind, Thumb)> {
+    let key = selected.get(&t.nodes[id].key).filter(|k| *k != COMPOSITE)?;
+    find_leaf(t, id, key)
+}
+
+/// The images and meshes below `id` (up to their caps), depth-first in tree order, one per
+/// entry. A folder below with a saved picture stands for itself with just that picture.
+fn nested(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> (Vec<Thumb>, Vec<Thumb>) {
+    let (mut images, mut meshes, mut seen) = (Vec::new(), Vec::new(), HashSet::new());
+    let mut stack: Vec<NodeId> = t.nodes[id].children.iter().rev().copied().collect();
+    while let Some(n) = stack.pop() {
+        if images.len() >= MAX_IMAGES && meshes.len() >= MAX_MESHES {
             break;
         }
         let node = &t.nodes[n];
-        match leaf_thumb(node) {
-            Some((k, th)) => {
-                if k == kind && seen.insert(th.entry_id) {
-                    out.push(th);
+        let found = if is_file_kind(node.kind) { leaf_thumb(node) } else { chosen_pic(t, n, selected) };
+        match found {
+            Some((kind, th)) => {
+                let (list, cap) = match kind {
+                    ThumbKind::Image => (&mut images, MAX_IMAGES),
+                    ThumbKind::Mesh => (&mut meshes, MAX_MESHES),
+                };
+                if list.len() < cap && seen.insert(th.entry_id) {
+                    list.push(th);
                 }
             }
-            None => stack.extend(node.children.iter().rev()),
+            None if !is_file_kind(node.kind) => stack.extend(node.children.iter().rev()),
+            None => {}
         }
     }
-    out
+    (images, meshes)
 }
 
 /// A node's pictures: a file shows itself; a folder its nested images (the hero first if it
-/// lives elsewhere), or its nested meshes when it has no images.
-fn pics(t: &Tree, id: NodeId) -> Vec<Thumb> {
+/// lives elsewhere), then its nested meshes. A saved picture deeper down than those comes first.
+fn pics(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> Vec<Thumb> {
     let n = &t.nodes[id];
     if is_file_kind(n.kind) {
         return leaf_thumb(n).map(|(_, th)| vec![th]).unwrap_or_default();
     }
-    let mut images = nested(t, id, ThumbKind::Image, MAX_IMAGES);
+    let (mut images, meshes) = nested(t, id, selected);
     if let (Some(entry_id), Some(key)) = (n.info.hero_entry_id, &n.info.hero_key) {
         if !images.iter().any(|p| p.entry_id == entry_id) {
             images.insert(0, Thumb { entry_id, key: key.clone() });
             images.truncate(MAX_IMAGES);
         }
     }
-    if images.is_empty() { nested(t, id, ThumbKind::Mesh, MAX_MESHES) } else { images }
+    images.extend(meshes);
+    if let Some((_, th)) = chosen_pic(t, id, selected) {
+        if !images.iter().any(|p| p.entry_id == th.entry_id) {
+            images.insert(0, th);
+        }
+    }
+    images
 }
 
 fn hero_index(n: &Node, pics: &[Thumb]) -> Option<usize> {
@@ -179,7 +217,7 @@ fn hero_index(n: &Node, pics: &[Thumb]) -> Option<usize> {
 /// its hero, else its first.
 fn shown_pic(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> Option<Thumb> {
     let n = &t.nodes[id];
-    let pics = pics(t, id);
+    let pics = pics(t, id, selected);
     let chosen = selected.get(&n.key).and_then(|k| pics.iter().position(|p| &p.key == k));
     chosen.or_else(|| hero_index(n, &pics)).or((!pics.is_empty()).then_some(0)).map(|i| pics[i].clone())
 }
@@ -187,7 +225,7 @@ fn shown_pic(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> Option
 /// `(composite cells, pics, slot)` for one item.
 fn carousel(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> (Vec<Thumb>, Vec<Thumb>, usize) {
     let n = &t.nodes[id];
-    let pics = pics(t, id);
+    let pics = pics(t, id, selected);
     if is_file_kind(n.kind) {
         return (Vec::new(), pics, 0);
     }
@@ -206,7 +244,11 @@ fn carousel(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> (Vec<Th
         }
     }
     if !cells.is_empty() {
-        for p in &pics {
+        // fill with images, or with meshes when there are none (a mesh cell next to the
+        // folder's one image is not worth a composite)
+        let is_image = |p: &Thumb| thumb_kind(&p.key) == Some(ThumbKind::Image);
+        let any_image = pics.iter().any(is_image);
+        for p in pics.iter().filter(|p| !any_image || is_image(p)) {
             if cells.len() == CELLS {
                 break;
             }
@@ -264,12 +306,57 @@ pub fn list(views: &Views, view: View, path: &[String], selected: &HashMap<Strin
         view,
         path: path[..used].to_vec(),
         name: n.name.clone(),
+        key: n.key.clone(),
         real: n.real.clone(),
         models: k.models,
         files: k.files,
         images: k.images,
         items,
     }
+}
+
+/// The disk part of a hover path: up to and including the first archive (`…\Pack.rar!a/b.stl`
+/// gives `…\Pack.rar`). A `!` that doesn't follow an archive name is part of a folder name.
+pub fn disk_part(real: &str) -> &str {
+    for (i, _) in real.match_indices('!') {
+        let before = &real[..i];
+        let name = before.rsplit(['\\', '/']).next().unwrap_or(before);
+        if stl_core::names::kind_of(name) == stl_core::names::Kind::Archive {
+            return before;
+        }
+    }
+    real
+}
+
+/// What a rescan of the folder at `path` must look at: the disk folders and archives behind it
+/// (several for a merged Models folder), none inside another. `None` at the library root
+/// (everything); an error when the folder is gone or has no real place.
+pub fn scope(views: &Views, view: View, path: &[String]) -> Result<Option<Vec<PathBuf>>, String> {
+    if path.is_empty() {
+        return Ok(None);
+    }
+    let t = &views.get(view).tree;
+    let (id, used) = t.walk(path);
+    if used != path.len() {
+        return Err(format!("the folder {} no longer exists", path.join("/")));
+    }
+    let mut paths: Vec<String> = t.nodes[id].real.iter().map(|r| disk_part(r).to_string()).collect();
+    paths.sort_by_key(|p| p.len());
+    let mut out: Vec<String> = Vec::new();
+    for p in paths {
+        let k = p.to_lowercase();
+        let covered = out.iter().any(|o| {
+            let o = o.to_lowercase();
+            k == o || k.strip_prefix(&o).is_some_and(|r| r.starts_with('\\'))
+        });
+        if !covered {
+            out.push(p);
+        }
+    }
+    if out.is_empty() {
+        return Err(format!("{} has no folder on disk to rescan", path.join("/")));
+    }
+    Ok(Some(out.into_iter().map(PathBuf::from).collect()))
 }
 
 #[cfg(test)]
@@ -393,7 +480,7 @@ mod tests {
         let coll = item(&l, "coll");
         let cells: Vec<&str> = coll.composite.iter().map(|t| t.key.rsplit('|').next().unwrap()).collect();
         assert_eq!(cells, ["Elf/elf.stl", "Orc/orc.jpg"]);
-        assert_eq!(coll.pics.len(), 1); // the one nested image
+        assert_eq!(coll.pics.len(), 3); // the one nested image, then the meshes
         assert_eq!(coll.slot, 0);
     }
 
@@ -420,17 +507,67 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
         std::fs::write(dir.path().join("lib/Vol/Coll/Elf/elf.png"), b"p").unwrap();
-        let (done, views) = crate::indexer::run_index(&state.db_path(), &mut |_| {});
+        let (done, views) = crate::indexer::run_index(&state.db_path(), None, &Default::default(), &mut |_| {});
         assert!(done.ok, "{:?}", done.error);
         state.set_views(views.unwrap());
         let l = list_folder_impl(&state, View::Files, segs(&["vol", "coll"])).unwrap();
         let elf = item(&l, "elf").clone();
-        assert_eq!(elf.pics.len(), 1); // images win over meshes
+        assert!(elf.pics[0].key.ends_with("elf.png")); // images before meshes
         let cell = |s: &AppState| {
             let vol = list_folder_impl(s, View::Files, segs(&["vol"])).unwrap();
             item(&vol, "coll").composite.iter().map(|t| t.key.rsplit('|').next().unwrap().to_string()).collect::<Vec<_>>()
         };
         assert_eq!(cell(&state)[0], "Elf/elf.png");
+    }
+
+    #[test]
+    fn meshes_follow_the_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let l = list_folder_impl(&state, View::Files, segs(&["vol", "coll"])).unwrap();
+        let orc = item(&l, "orc");
+        let names: Vec<&str> = orc.pics.iter().map(|t| t.key.rsplit('/').next().unwrap()).collect();
+        assert_eq!(names, ["orc.jpg", "orc.stl"]);
+        assert_eq!(orc.slot, 0); // the image stays the default
+        // the mesh can be chosen
+        select(&state, &orc.key, &orc.pics[1].key);
+        let l = list_folder_impl(&state, View::Files, segs(&["vol", "coll"])).unwrap();
+        assert_eq!(item(&l, "orc").slot, 1);
+    }
+
+    #[test]
+    fn a_folders_choice_stands_for_it_in_its_parents() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let names = |s: &AppState| {
+            let l = list_folder_impl(s, View::Files, segs(&["vol"])).unwrap();
+            item(&l, "coll").pics.iter().map(|t| t.key.rsplit('/').next().unwrap().to_string()).collect::<Vec<_>>()
+        };
+        assert_eq!(names(&state), ["orc.jpg", "elf.stl", "orc.stl"]);
+        // Orc's choice is its mesh: Coll sees only that from Orc
+        let l = list_folder_impl(&state, View::Files, segs(&["vol", "coll"])).unwrap();
+        let orc = item(&l, "orc").clone();
+        select(&state, &orc.key, &orc.pics[1].key);
+        assert_eq!(names(&state), ["elf.stl", "orc.stl"]);
+        // a stale choice is ignored
+        select(&state, &orc.key, "f:gone|x.stl");
+        assert_eq!(names(&state), ["orc.jpg", "elf.stl", "orc.stl"]);
+    }
+
+    #[test]
+    fn a_deep_choice_comes_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let l = list_folder_impl(&state, View::Files, segs(&["vol", "coll", "orc"])).unwrap();
+        let stl = item(&l, "orc.stl").key.clone();
+        // chosen for Vol (two levels up) from the right-click menu
+        let vol = list_folder_impl(&state, View::Files, vec![]).unwrap();
+        select(&state, &item(&vol, "vol").key, &stl);
+        let vol = list_folder_impl(&state, View::Files, vec![]).unwrap();
+        let v = item(&vol, "vol");
+        let slot = v.slot - usize::from(!v.composite.is_empty());
+        assert_eq!(v.pics[slot].key, stl);
+        assert_eq!(l.key, item(&list_folder_impl(&state, View::Files, segs(&["vol", "coll"])).unwrap(), "orc").key);
     }
 
     #[test]
@@ -443,6 +580,27 @@ mod tests {
         assert!(stl.composite.is_empty());
         let jpg = item(&l, "orc.jpg");
         assert_eq!(jpg.pics.len(), 1);
+    }
+
+    #[test]
+    fn disk_part_stops_at_the_first_archive() {
+        assert_eq!(disk_part(r"D:\Models\Vol\Grimlax.rar!Grimlax/842.zip!a/body.stl"), r"D:\Models\Vol\Grimlax.rar");
+        assert_eq!(disk_part(r"D:\Models\Wow!\Orc"), r"D:\Models\Wow!\Orc");
+        assert_eq!(disk_part(r"D:\Models\Wow!\P.zip!x.stl"), r"D:\Models\Wow!\P.zip");
+    }
+
+    #[test]
+    fn scope_of_a_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let views = state.views().unwrap();
+        assert_eq!(scope(&views, View::Models, &[]).unwrap(), None);
+        let s = scope(&views, View::Files, &segs(&["vol", "coll", "orc"])).unwrap().unwrap();
+        assert_eq!(s.len(), 1);
+        assert!(s[0].ends_with("Vol/Coll/Orc"), "{s:?}");
+        let s = scope(&views, View::Models, &segs(&["vol", "coll"])).unwrap().unwrap();
+        assert!(s.iter().all(|p| !p.to_string_lossy().contains('!')), "{s:?}");
+        assert!(scope(&views, View::Files, &segs(&["vol", "gone"])).is_err());
     }
 
     #[test]
