@@ -1,10 +1,11 @@
 //! Background index runs: scan + resolve on a connection of their own, then rebuild the views.
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use serde::Serialize;
-use stl_index::scanstore::Progress;
+use stl_index::scanstore::{Progress, ScanRun};
 use stl_index::{db, resolvestore};
 use stl_scan::nested::ListOptions;
 use tauri::{AppHandle, Emitter, Manager};
@@ -36,15 +37,24 @@ pub struct IndexDone {
     pub models: usize,
     pub warnings: Vec<String>,
     pub seconds: f64,
+    /// Stopped by the user before every source was looked at.
+    pub cancelled: bool,
 }
 
-/// Scan and resolve every root, then build the views. Errors and panics end up in `IndexDone`.
-pub fn run_index(db_path: &Path, progress: &mut dyn FnMut(IndexProgress)) -> (IndexDone, Option<Views>) {
+/// Scan and resolve every root (or just `scope`, see `ScanRun`), then build the views. Errors
+/// and panics end up in `IndexDone`.
+pub fn run_index(
+    db_path: &Path,
+    scope: Option<&[PathBuf]>,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(IndexProgress),
+) -> (IndexDone, Option<Views>) {
     let t = Instant::now();
     let mut warnings = Vec::new();
     let result = catch_unwind(AssertUnwindSafe(|| -> Result<_, String> {
         let mut conn = db::open(db_path).map_err(|e| e.to_string())?;
-        let stats = resolvestore::index_all(&mut conn, &ListOptions::default(), &mut |p| match p {
+        let run = ScanRun { scope, cancel: Some(cancel) };
+        let stats = resolvestore::index_run(&mut conn, &ListOptions::default(), &run, &mut |p| match p {
             Progress::Source { index, total, name } => {
                 progress(IndexProgress { index: index + 1, total, name: name.to_string() })
             }
@@ -74,6 +84,7 @@ pub fn run_index(db_path: &Path, progress: &mut dyn FnMut(IndexProgress)) -> (In
                 models: stats.models,
                 warnings,
                 seconds,
+                cancelled: s.cancelled,
             };
             (done, Some(views))
         }
@@ -81,19 +92,21 @@ pub fn run_index(db_path: &Path, progress: &mut dyn FnMut(IndexProgress)) -> (In
     }
 }
 
-/// Start an index run on a background thread, or refuse if one is running.
-pub fn start_index(app: AppHandle) -> Result<(), String> {
+/// Start an index run of `scope` (`None` = everything) on a background thread, or refuse if
+/// one is running.
+pub fn start_index(app: AppHandle, scope: Option<Vec<PathBuf>>) -> Result<(), String> {
     let guard = app.state::<AppState>().try_begin_index().ok_or(BUSY)?;
-    start_index_with(app, guard);
+    start_index_with(app, guard, scope);
     Ok(())
 }
 
 /// Run the index on a background thread under a claim the caller already holds.
-pub fn start_index_with(app: AppHandle, guard: IndexGuard) {
-    let db_path = app.state::<AppState>().db_path();
+pub fn start_index_with(app: AppHandle, guard: IndexGuard, scope: Option<Vec<PathBuf>>) {
+    let state = app.state::<AppState>();
+    let (db_path, cancel) = (state.db_path(), state.cancel_index.clone());
     std::thread::spawn(move || {
         let _guard = guard;
-        let (done, views) = run_index(&db_path, &mut |p| {
+        let (done, views) = run_index(&db_path, scope.as_deref(), &cancel, &mut |p| {
             let _ = app.emit("index-progress", p);
         });
         let state = app.state::<AppState>();
@@ -122,7 +135,7 @@ mod tests {
         let state = library(dir.path());
         std::fs::write(dir.path().join("lib/Vol/Coll/Elf/elf2.stl"), b"x").unwrap();
         let mut seen = Vec::new();
-        let (done, views) = run_index(&state.db_path(), &mut |p| seen.push(p.name));
+        let (done, views) = run_index(&state.db_path(), None, &AtomicBool::new(false), &mut |p| seen.push(p.name));
         assert!(done.ok, "{:?}", done.error);
         assert!(!seen.is_empty());
         assert_eq!(done.resolved, 1);
@@ -135,7 +148,7 @@ mod tests {
     #[test]
     fn run_index_on_unopenable_db_reports_error() {
         let dir = tempfile::tempdir().unwrap();
-        let (done, views) = run_index(&dir.path().join("no/such/dir/index.db"), &mut |_| {});
+        let (done, views) = run_index(&dir.path().join("no/such/dir/index.db"), None, &AtomicBool::new(false), &mut |_| {});
         assert!(!done.ok);
         assert!(done.error.is_some());
         assert!(views.is_none());
@@ -146,7 +159,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
         std::fs::rename(dir.path().join("lib/Vol"), dir.path().join("lib/Gone")).unwrap();
-        let (done, views) = run_index(&state.db_path(), &mut |_| {});
+        let (done, views) = run_index(&state.db_path(), None, &AtomicBool::new(false), &mut |_| {});
         assert!(done.ok, "{:?}", done.error);
         assert!(done.warnings.iter().any(|w| w.contains("not found")), "{:?}", done.warnings);
         assert_eq!(views.unwrap().models.counts[0].models, 2);

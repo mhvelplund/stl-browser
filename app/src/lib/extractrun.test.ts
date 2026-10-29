@@ -12,6 +12,7 @@ const done: ExtractDone = {
   failed: [],
   dest: "D:\out\orc",
   seconds: 1.25,
+  cancelled: false,
 };
 
 test("a clean extraction says where it went", () => {
@@ -22,6 +23,10 @@ test("a clean extraction says where it went", () => {
 test("failures and skipped items are listed", () => {
   const d = { ...done, ok: false, files: 11, failed: [["orc/x.stl", "bad member"]] as [string, string][], skipped: 2 };
   assert.equal(extractHint(d), "Extracted 11 files to D:\out\orc (1.3 s) · 2 locked skipped · 1 failed: orc/x.stl (bad member)");
+});
+
+test("a stopped extraction says so", () => {
+  assert.equal(extractHint({ ...done, files: 4, cancelled: true }), "Stopped after 4 files to D:\out\orc (1.3 s)");
 });
 
 test("an internal error is shown as such", () => {

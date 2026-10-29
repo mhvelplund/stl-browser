@@ -117,8 +117,9 @@ pub fn batch_key(loc: &EntryLoc) -> Option<(String, Vec<String>)> {
 }
 
 /// Read the files `locs` (all with one `batch_key`) in one pass; `f(index, bytes)` for each
-/// one found. A panic in an archive reader becomes an error.
-pub fn extract_batch(locs: &[(usize, &EntryLoc)], f: &mut dyn FnMut(usize, &[u8])) -> Result<(), String> {
+/// one found; `f` returns `false` to stop the pass (an error). A panic in an archive reader
+/// becomes an error.
+pub fn extract_batch(locs: &[(usize, &EntryLoc)], f: &mut dyn FnMut(usize, &[u8]) -> bool) -> Result<(), String> {
     let Some(&(_, first)) = locs.first() else { return Ok(()) };
     let outer = &first.chain[..first.chain.len().saturating_sub(1)];
     let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
@@ -131,7 +132,9 @@ pub fn extract_batch(locs: &[(usize, &EntryLoc)], f: &mut dyn FnMut(usize, &[u8]
     let r = catch_unwind(AssertUnwindSafe(|| {
         extract_many_entries(first.kind, Path::new(&first.source_path), outer, &wanted, &mut |name, bytes| {
             for &i in by_name.get(name).map(Vec::as_slice).unwrap_or_default() {
-                f(i, bytes);
+                if !f(i, bytes) {
+                    return Err(stl_scan::ScanError::Format("stopped".into()));
+                }
             }
             Ok(())
         })
@@ -172,8 +175,11 @@ pub fn write_tree(
             if group.len() > 1 {
                 // a failed pass leaves its unwritten files to the one-by-one path below
                 let _ = extract_batch(&group, &mut |j, bytes| {
-                    if done[j] || cancel.load(Ordering::SeqCst) {
-                        return;
+                    if cancel.load(Ordering::SeqCst) {
+                        return false;
+                    }
+                    if done[j] {
+                        return true;
                     }
                     progress(count, &files[j].rel);
                     count += 1;
@@ -186,6 +192,7 @@ pub fn write_tree(
                         }
                         Err(e) => report.failed.push((files[j].rel.clone(), e)),
                     }
+                    true
                 });
                 if done[i] {
                     continue;
@@ -328,6 +335,7 @@ impl FileServer {
                             }
                         }
                     }
+                    true
                 });
                 self.read.insert(key);
                 match (served, r) {

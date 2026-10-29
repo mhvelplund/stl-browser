@@ -2,6 +2,7 @@
 //! unchanged keeps its cached listing, changed ones are re-listed, vanished ones are removed.
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use stl_scan::discover::{SourceInfo, discover};
@@ -36,6 +37,52 @@ pub struct ScanStats {
     pub locked: usize,
     /// Collections with a source listed or removed: they need resolving again.
     pub dirty: BTreeSet<String>,
+    /// The run was stopped before every source was looked at.
+    pub cancelled: bool,
+}
+
+/// How much of a root to scan, and a flag that stops the scan before the next source.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScanRun<'a> {
+    /// Absolute folders or archive files; `None` scans everything.
+    pub scope: Option<&'a [PathBuf]>,
+    pub cancel: Option<&'a AtomicBool>,
+}
+
+impl ScanRun<'_> {
+    pub fn cancelled(&self) -> bool {
+        self.cancel.is_some_and(|c| c.load(Ordering::SeqCst))
+    }
+
+    /// Whether a source at `path` is in scope. A folder source holds its collection's loose
+    /// files, so a scope below it counts too, except below the root's own folder source (it
+    /// holds only the files directly in the root).
+    fn covers(&self, root: &Path, kind: SourceKind, path: &Path) -> bool {
+        let Some(scope) = self.scope else { return true };
+        let (root, path) = (path_key(root), path_key(path));
+        scope.iter().any(|s| {
+            // an archive file (or one gone since), not a folder that happens to be named `x.zip`
+            let archive = !s.is_dir() && s.file_name().is_some_and(|n| stl_core::names::kind_of(&n.to_string_lossy()) == stl_core::names::Kind::Archive);
+            let s = path_key(s);
+            is_under(&path, &s) || (kind == SourceKind::Folder && !archive && path != root && is_under(&s, &path))
+        })
+    }
+
+    /// Whether any part of `root` is in scope.
+    pub fn touches(&self, root: &Path) -> bool {
+        let Some(scope) = self.scope else { return true };
+        let root = path_key(root);
+        scope.iter().map(|s| path_key(s)).any(|s| is_under(&s, &root) || is_under(&root, &s))
+    }
+}
+
+fn path_key(p: &Path) -> String {
+    root_key(&p.to_string_lossy())
+}
+
+/// `path` is `dir` or inside it (both from `path_key`).
+fn is_under(path: &str, dir: &str) -> bool {
+    path == dir || path.strip_prefix(dir).is_some_and(|rest| rest.starts_with('\\'))
 }
 
 impl ScanStats {
@@ -47,6 +94,7 @@ impl ScanStats {
         self.errors += o.errors;
         self.locked += o.locked;
         self.dirty.extend(o.dirty.iter().cloned());
+        self.cancelled |= o.cancelled;
     }
 }
 
@@ -130,13 +178,26 @@ pub fn scan_root(
     opts: &ListOptions,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<ScanStats, IndexError> {
-    scan_root_with(conn, root_id, opts, progress, &list_source)
+    scan_root_run(conn, root_id, opts, &ScanRun::default(), progress)
+}
+
+/// Scan the part of one root that `run` covers. A cancelled scan deletes no vanished sources:
+/// it hasn't seen them all.
+pub fn scan_root_run(
+    conn: &mut Connection,
+    root_id: i64,
+    opts: &ListOptions,
+    run: &ScanRun,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<ScanStats, IndexError> {
+    scan_root_with(conn, root_id, opts, run, progress, &list_source)
 }
 
 fn scan_root_with(
     conn: &mut Connection,
     root_id: i64,
     opts: &ListOptions,
+    run: &ScanRun,
     progress: &mut dyn FnMut(Progress),
     lister: &Lister,
 ) -> Result<ScanStats, IndexError> {
@@ -150,16 +211,25 @@ fn scan_root_with(
     if covering_root(conn, root_id)?.is_some() {
         return Ok(ScanStats::default());
     }
+    // a rescan of one folder says nothing about the other roots, missing or not
+    if !run.touches(&root) {
+        return Ok(ScanStats::default());
+    }
     if !root.is_dir() {
         return Err(IndexError::RootMissing(root));
     }
-    let sources = discover(&root, &mut |w| progress(Progress::Warning(&w)))?;
+    let mut sources = discover(&root, &mut |w| progress(Progress::Warning(&w)))?;
+    sources.retain(|s| run.covers(&root, s.kind, &s.path));
     let mut stats = ScanStats {
         sources: sources.len(),
         ..ScanStats::default()
     };
     let mut seen = HashSet::new();
     for (index, src) in sources.iter().enumerate() {
+        if run.cancelled() {
+            stats.cancelled = true;
+            return Ok(stats);
+        }
         progress(Progress::Source {
             index,
             total: sources.len(),
@@ -200,13 +270,14 @@ fn scan_root_with(
         stats.listed += 1;
         stats.dirty.insert(src.collection.clone());
     }
-    let stale: Vec<(i64, String, String)> = {
-        let mut st = conn.prepare("SELECT id, path, coalesce(collection, '') FROM sources WHERE root_id = ?")?;
-        st.query_map([root_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+    let stale: Vec<(i64, String, String, String)> = {
+        let mut st = conn.prepare("SELECT id, path, coalesce(collection, ''), kind FROM sources WHERE root_id = ?")?;
+        st.query_map([root_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
             .collect::<Result<_, _>>()?
     };
-    for (id, path, collection) in stale {
-        if !seen.contains(&path) {
+    for (id, path, collection, kind) in stale {
+        let kind = if kind == "folder" { SourceKind::Folder } else { SourceKind::Archive };
+        if !seen.contains(&path) && run.covers(&root, kind, Path::new(&path)) {
             let tx = conn.transaction()?;
             tx.execute("DELETE FROM sources WHERE id = ?", [id])?;
             tx.execute("DELETE FROM resolved WHERE root_id = ?1 AND collection = ?2", params![root_id, collection])?;
@@ -325,7 +396,7 @@ mod tests {
             }
             Ok(Listing::Entries(vec![ScannedEntry { path: "a.stl".into(), chain: vec!["a.stl".into()], size: 1, crc: String::new(), locked: false }], Vec::new()))
         };
-        let s = scan_root_with(&mut conn, id, &ListOptions::default(), &mut |_| {}, &lister).unwrap();
+        let s = scan_root_with(&mut conn, id, &ListOptions::default(), &ScanRun::default(), &mut |_| {}, &lister).unwrap();
         assert_eq!((s.listed, s.errors), (2, 1));
         let err: String = conn.query_row("SELECT error FROM sources WHERE name = 'boom'", [], |r| r.get(0)).unwrap();
         assert!(err.contains("parser exploded"), "{err}");

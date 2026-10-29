@@ -31,6 +31,8 @@ export type Listing = {
   view: View;
   path: string[];
   name: string;
+  /** The folder's node key: what its saved thumbnail choice is stored under. */
+  key: string;
   real: string[];
   models: number;
   files: number;
@@ -56,6 +58,8 @@ export type IndexDone = {
   models: number;
   warnings: string[];
   seconds: number;
+  /** Stopped before every source was looked at. */
+  cancelled: boolean;
 };
 
 export type ExtractProgress = { index: number; total: number; name: string };
@@ -72,15 +76,23 @@ export type ExtractDone = {
   /** Where the first item went. */
   dest: string;
   seconds: number;
+  cancelled: boolean;
 };
 
 /** What a drag carries; `skipped` counts locked archives and paths too long for Explorer. */
 export type DragInfo = { files: number; skipped: number };
 
 export const listFolder = (view: View, path: string[]) => invoke<Listing>("list_folder", { view, path });
+/** The folder of view `to` matching the folder at `path` of view `from`. */
+export const locate = (from: View, path: string[], to: View) => invoke<string[]>("locate", { from, path, to });
+/** Open a file in its Windows app (extracted to a temp folder first if it is in an archive). */
+export const openFile = (view: View, path: string[], name: string) => invoke<void>("open_file", { view, path, name });
 export const status = () => invoke<Status>("status");
 export const addFolder = (path: string) => invoke<RootInfo>("add_folder", { path });
-export const rescan = () => invoke<void>("rescan");
+/** Rescan the folder at `path` (everything at the library root). */
+export const rescan = (view: View, path: string[]) => invoke<void>("rescan", { view, path });
+export const cancelIndex = () => invoke<void>("cancel_index");
+export const cancelExtract = () => invoke<void>("cancel_extract");
 export const requestThumbs = (high: number[], low: number[]) =>
   invoke<{ ready: ThumbReady[]; pending: number }>("request_thumbs", { high, low });
 export const selectThumb = (nodeKey: string, imageKey: string) => invoke<void>("select_thumb", { nodeKey, imageKey });

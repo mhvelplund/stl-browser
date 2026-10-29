@@ -3,6 +3,7 @@ use serde::Serialize;
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::Ordering;
 
 use stl_index::scanstore;
 
@@ -92,6 +93,18 @@ pub fn list_folder(state: tauri::State<'_, AppState>, view: View, path: Vec<Stri
     list_folder_impl(&state, view, path)
 }
 
+pub fn locate_impl(state: &AppState, from: View, path: &[String], to: View) -> Result<Vec<String>, String> {
+    let views = state.views()?;
+    Ok(stl_core::vtree::locate::locate(&views.get(from).tree, path, &views.get(to).tree))
+}
+
+/// The folder of view `to` that matches the folder at `path` of view `from` (switching views
+/// keeps the user's place).
+#[tauri::command(async)]
+pub fn locate(state: tauri::State<'_, AppState>, from: View, path: Vec<String>, to: View) -> Result<Vec<String>, String> {
+    locate_impl(&state, from, &path, to)
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RootInfo {
@@ -139,10 +152,21 @@ pub fn status(state: tauri::State<'_, AppState>) -> Result<Status, String> {
     status_impl(&state)
 }
 
-/// Scan every root and resolve what changed, in the background (`index-progress`, `index-done`).
+/// Scan the folder at `path` of `view` (every root at the library root) and resolve what
+/// changed, in the background (`index-progress`, `index-done`).
+#[tauri::command(async)]
+pub fn rescan(app: tauri::AppHandle, state: tauri::State<'_, AppState>, view: View, path: Vec<String>) -> Result<(), String> {
+    // everything, even when the views can't be built: a full rescan is the way to recover
+    let scope = if path.is_empty() { None } else { browse::scope(&*state.views()?, view, &path)? };
+    indexer::start_index(app, scope)
+}
+
+/// Stop the running index after its current source.
 #[tauri::command]
-pub fn rescan(app: tauri::AppHandle) -> Result<(), String> {
-    indexer::start_index(app)
+pub fn cancel_index(state: tauri::State<'_, AppState>) {
+    if state.is_indexing() {
+        state.cancel_index.store(true, Ordering::SeqCst);
+    }
 }
 
 /// Claim the index run, then register the folder as a root. The claim is returned so the
@@ -161,7 +185,7 @@ pub fn add_folder_impl(state: &AppState, path: &str) -> Result<(RootInfo, IndexG
 #[tauri::command(async)]
 pub fn add_folder(app: tauri::AppHandle, state: tauri::State<'_, AppState>, path: String) -> Result<RootInfo, String> {
     let (info, guard) = add_folder_impl(&state, &path)?;
-    indexer::start_index_with(app, guard);
+    indexer::start_index_with(app, guard, None);
     Ok(info)
 }
 
@@ -199,6 +223,15 @@ mod tests {
         assert!(s.roots[0].missing);
         // still browsable from the index
         assert_eq!(list_folder_impl(&state, View::Models, vec![]).unwrap().items.len(), 1);
+    }
+
+    #[test]
+    fn locate_maps_between_views() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::testutil::library(dir.path());
+        let segs = |p: &[&str]| p.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(locate_impl(&state, View::Models, &segs(&["vol", "coll", "orc"]), View::Files).unwrap(), ["vol", "coll", "orc"]);
+        assert_eq!(locate_impl(&state, View::Files, &segs(&["vol", "coll"]), View::Models).unwrap(), ["vol", "coll"]);
     }
 
     #[test]

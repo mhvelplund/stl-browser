@@ -114,3 +114,54 @@ fn collection_that_is_one_model_has_no_group() {
     resolvestore::index_all(&mut conn, &ListOptions::default(), &mut |_| {}).unwrap();
     assert_eq!(count(&conn, "SELECT count(*) FROM models WHERE group_id IS NULL"), 1);
 }
+
+#[test]
+fn cancelled_index_resolves_what_it_listed() {
+    let mut f = fixture();
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let run = scanstore::ScanRun { cancel: Some(&cancel), ..Default::default() };
+    // stop once the first source is being listed
+    let s = resolvestore::index_run(&mut f.conn, &ListOptions::default(), &run, &mut |p| {
+        if let scanstore::Progress::Source { .. } = p {
+            cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    })
+    .unwrap();
+    assert!(s.scan.cancelled);
+    assert_eq!((s.scan.listed, s.resolved), (1, 1));
+    assert_eq!(count(&f.conn, "SELECT count(*) FROM models WHERE collection = 'Vol/A'"), 1);
+    // the next run picks up the rest
+    let s = index(&mut f);
+    assert!(!s.scan.cancelled);
+    assert_eq!(s.scan.listed, 2);
+}
+
+#[test]
+fn scoped_index_resolves_only_the_scope() {
+    let mut f = fixture();
+    index(&mut f);
+    rewrite(&f.root, "A/Two.zip", &zip(&[("Two/t.stl", b"t"), ("Two/u.stl", b"u")]));
+    rewrite(&f.root, "B/Other.zip", &zip(&[("Other/x.stl", b"x"), ("Other/y.stl", b"y")]));
+    let scope = vec![f.root.join("B")];
+    let run = scanstore::ScanRun { scope: Some(&scope), ..Default::default() };
+    let s = resolvestore::index_run(&mut f.conn, &ListOptions::default(), &run, &mut |_| {}).unwrap();
+    assert_eq!((s.scan.listed, s.resolved), (1, 1));
+}
+
+#[test]
+fn scoped_index_ignores_unrelated_missing_roots() {
+    let mut f = fixture();
+    index(&mut f);
+    let gone = f.root.parent().unwrap().join("Offline");
+    scanstore::add_root(&f.conn, &gone).unwrap();
+    let scope = vec![f.root.join("B")];
+    let run = scanstore::ScanRun { scope: Some(&scope), ..Default::default() };
+    let mut warnings = Vec::new();
+    resolvestore::index_run(&mut f.conn, &ListOptions::default(), &run, &mut |p| {
+        if let scanstore::Progress::Warning(w) = p {
+            warnings.push(w.to_string());
+        }
+    })
+    .unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}

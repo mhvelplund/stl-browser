@@ -15,6 +15,7 @@ const done: IndexDone = {
   models: 2,
   warnings: ["folder not found: D:\\x"],
   seconds: 0.04,
+  cancelled: false,
 };
 
 test("done before the command's reply keeps the result", () => {
@@ -31,6 +32,11 @@ test("refused run is not busy and says why", () => {
   const r = step(step(idle, { type: "start", hint: "Rescanning…" }), { type: "refused", error: "an index run is already in progress" });
   assert.equal(r.busy, false);
   assert.equal(r.hint, "Could not start indexing: an index run is already in progress");
+});
+
+test("a stopped run says so", () => {
+  const r = step(idle, { type: "done", done: { ...done, listed: 3, cancelled: true } });
+  assert.equal(r.hint, "Stopped: 3 listed · 0 errors · 2 models (0.0 s)");
 });
 
 test("failed run", () => {

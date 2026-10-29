@@ -45,7 +45,7 @@
     <button type="button" class="btn icon" aria-label="Back" title="Back (Alt+Left)" disabled={!nav.back.length} onclick={onBack}>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
     </button>
-    <button type="button" class="btn icon" aria-label="Up one folder" title="Up (Backspace)" disabled={!nav.path.length} onclick={onUp}>
+    <button type="button" class="btn icon" aria-label="Up one folder" title="Up (Backspace, mouse Back)" disabled={!nav.path.length} onclick={onUp}>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
     </button>
   </div>
@@ -60,9 +60,15 @@
     <button type="button" class="seg" class:on={view === "files"} aria-pressed={view === "files"} onclick={() => onView("files")}>Files</button>
   </div>
   <div class="group">
-    <button type="button" class="btn" disabled={busy} onclick={onRescan}>
+    <button
+      type="button"
+      class="btn"
+      disabled={busy}
+      title={nav.path.length ? "Rescan this folder and the folders in it" : "Rescan every indexed folder"}
+      onclick={onRescan}
+    >
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5V5h-2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-      Rescan all
+      {nav.path.length ? "Rescan folder" : "Rescan all"}
     </button>
     <button type="button" class="btn primary" disabled={busy} onclick={onAdd}>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>

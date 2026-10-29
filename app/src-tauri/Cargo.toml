@@ -36,6 +36,7 @@ stl-drag = { path = "../../crates/stl-drag" }
 
 [dev-dependencies]
 tempfile = "3"
+zip = "9.1.2"
 
 [target.'cfg(windows)'.dev-dependencies]
 windows = "0.62.2"

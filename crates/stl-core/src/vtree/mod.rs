@@ -2,6 +2,7 @@
 //! names, `_N` postfixes for clashes, hover (real) paths with `!` at archive boundaries.
 //! See `docs/virtual-tree.md`.
 pub mod export;
+pub mod locate;
 pub mod files;
 pub mod models;
 
