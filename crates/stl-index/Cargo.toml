@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 rusqlite = { version = "0.37", features = ["bundled", "hooks"] }
 dirs = "6"
-stl-scan = { version = "0.2.0", path = "../stl-scan" }
+stl-scan = { version = "0.3.0", path = "../stl-scan" }
 serde_json = "1.0.154"
 stl-core = { path = "../stl-core" }
 stl-thumb = { path = "../stl-thumb" }

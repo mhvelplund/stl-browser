@@ -1,5 +1,7 @@
 # STL Browser
 
+<img src="docs/img/slop-small.jpg" alt="For robots, by robots. Vibed without love or skill." height="24" />
+
 A Windows desktop app for browsing 3D-print collections: folders of STL, OBJ and LYS files and their pictures, often
 packed in RAR, ZIP or 7Z archives that are nested inside other archives. You add folders to an index and browse them
 like Windows Explorer with very large icons. Each folder shows a carousel of the pictures inside it, and you can drag
@@ -24,22 +26,20 @@ Tags, search and filters are planned. See [`docs/index.md`](docs/index.md) for t
 
 ## Download
 
-Download
-[`stl-browser-v0.1.0.exe`](https://github.com/mhvelplund/stl-browser/releases/download/v0.1.0/stl-browser-v0.1.0.exe)
-from the [v0.1.0 release](https://github.com/mhvelplund/stl-browser/releases/tag/v0.1.0). It is a standalone executable,
-so there's nothing to install. It needs Windows 10 or 11 with the WebView2 runtime, which Windows 11 already has. The
-exe isn't code-signed, so Windows SmartScreen may warn you the first time you start it.
+
+Download the [standalone executable] or the [installer] from the [v0.2.0 release]-page. Both need Windows 10 or 11 with
+the WebView2 runtime, which Windows 11 already has. The binaries aren't code-signed, so Windows SmartScreen may warn you
+the first time you start it.
 
 To build from source instead, read on.
 
 ## Prerequisites
 
-- Windows 10 or 11 with the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/). Windows 11
-  already has it.
-- [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development
-  with C++** workload. Tauri and the bundled `unrar` C++ sources need it.
-- [Rust](https://rustup.rs/) stable 1.85 or newer (the workspace uses edition 2024), with the default MSVC toolchain.
-- [Node.js](https://nodejs.org/) 20.19+ or 22.12+ (needed by Vite 8), with npm.
+- Windows 10 or 11 with the [WebView2 runtime]. Windows 11 already has it.
+- [Visual Studio Build Tools] with the **Desktop development with C++** workload. Tauri and the bundled `unrar` C++
+  sources need it.
+- [Rust] stable 1.85 or newer (the workspace uses edition 2024), with the default MSVC toolchain.
+- [Node.js] 20.19+ or 22.12+ (needed by Vite 8), with npm.
 
 ## Build a release binary
 
@@ -71,8 +71,8 @@ Cargo home and the checkout) so the exe doesn't embed paths from your machine.
 
 ## Run it
 
-Start `target/release/app.exe` (or `stl-browser-<version>.exe`), or run the installer and start **STL Browser**
-from the Start menu.
+Start `target/release/app.exe` (or `stl-browser-<version>.exe`), or run the installer and start **STL Browser** from the
+Start menu.
 
 1. Click **Add folder** and pick a folder with your collection, e.g. `D:\Models`.
 2. Indexing runs in the background. The first index of a large collection can take a few minutes, mostly spent listing
@@ -100,15 +100,15 @@ cargo run --release -p stl-index --bin stlx -- add <dir>   # dev CLI: add, index
 
 ## Repository layout
 
-| Path                | Contents                                                                    |
-|---------------------|-----------------------------------------------------------------------------|
-| `crates/stl-core`   | Pure logic: file-name heuristics, the model resolver, the virtual tree views |
-| `crates/stl-scan`   | Archive access (ZIP/7Z/RAR), nested listing, extraction, folder discovery   |
-| `crates/stl-thumb`  | Thumbnail generation: image scaling, STL/OBJ rendering, priority queue       |
-| `crates/stl-drag`   | Windows OLE drag-out of virtual files                                        |
-| `crates/stl-index`  | The SQLite index: schema, incremental scans, views, export; `stlx` CLI       |
-| `app/src-tauri`     | The Tauri shell and its commands                                             |
-| `app/src`           | The SvelteKit UI                                                             |
+| Path               | Contents                                                                     |
+|--------------------|------------------------------------------------------------------------------|
+| `crates/stl-core`  | Pure logic: file-name heuristics, the model resolver, the virtual tree views |
+| `crates/stl-scan`  | Archive access (ZIP/7Z/RAR), nested listing, extraction, folder discovery    |
+| `crates/stl-thumb` | Thumbnail generation: image scaling, STL/OBJ rendering, priority queue       |
+| `crates/stl-drag`  | Windows OLE drag-out of virtual files                                        |
+| `crates/stl-index` | The SQLite index: schema, incremental scans, views, export; `stlx` CLI       |
+| `app/src-tauri`    | The Tauri shell and its commands                                             |
+| `app/src`          | The SvelteKit UI                                                             |
 
 Design documents:
 
@@ -121,3 +121,12 @@ Design documents:
 ## License
 
 [MIT](LICENSE)
+
+<!-- Links -->
+[installer]: https://github.com/mhvelplund/stl-browser/releases/download/v0.2.0/stl-browser_0.2.0_x64-setup.exe
+[Node.js]: https://nodejs.org/
+[Rust]: https://rustup.rs/
+[standalone executable]: https://github.com/mhvelplund/stl-browser/releases/download/v0.2.0/stl-browser-0.2.0.exe
+[v0.2.0 release]: https://github.com/mhvelplund/stl-browser/releases/tag/v0.2.0
+[Visual Studio Build Tools]: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+[WebView2 runtime]: https://developer.microsoft.com/microsoft-edge/webview2/

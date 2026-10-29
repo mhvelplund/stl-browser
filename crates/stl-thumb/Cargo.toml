@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 blake3 = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
-stl-scan = { version = "0.2.0", path = "../stl-scan" }
+stl-scan = { version = "0.3.0", path = "../stl-scan" }
 stl_io = "0.11.0"
 tobj = "4.0.5"
 
