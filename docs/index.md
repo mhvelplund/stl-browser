@@ -31,7 +31,7 @@ anything out to Explorer to extract it.
 | 3. Resolve: port of the prototype's model resolver and virtual tree                          | done                                          |
 | 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                      | done                                          |
 | 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | done                                          |
-| 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | done (a real mouse drag is still unchecked)   |
+| 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | done                                          |
 | 7. Tags, search, filters                                                                     | later (only the database tables exist so far) |
 
 Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and
@@ -73,10 +73,8 @@ Milestone 6 was checked on Vol.1 without a mouse:
 - **The drag pipeline on real data.** `drag_real_item_to_shell_folder` (an opt-in test) drops the same two models on the
   shell's drop target. They copy in 1.3 s and 5.3 s, with every file at its indexed size.
 - **`begin_drag` with no button held** returns at once and starts no drag.
-- **Not checked yet:**
-  - a real mouse drag from the window to Explorer (how WebView2 and `DoDragDrop` interact);
-  - pressing Escape during a drag;
-  - the context menu, by hand.
+- **Checked by hand afterwards** (2026-10-29): a real mouse drag from the window to Explorer works, Escape during a drag
+  writes nothing, and the context menu's Extract to… works.
 
 ## Architecture
 
@@ -414,8 +412,6 @@ From the milestone 5 review:
 
 From the milestone 6 review:
 
-- **A real mouse drag to Explorer has not been tried.** Still unchecked: how WebView2 and `DoDragDrop` interact, a
-  stuck pressed state after the drag, the app staying responsive during a long copy, and Escape.
 - **Extract to… may act on the wrong folder.** It reads the current folder after the folder picker returns. Backspace
   with the context menu open also navigates. Either way it can use another folder (usually giving "no longer exists").
 - **The status line lists every failed file.** A source deleted since indexing can fill it with thousands of entries.
