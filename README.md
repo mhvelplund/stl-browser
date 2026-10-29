@@ -58,12 +58,15 @@ This builds the Svelte UI and then the Rust app in release mode (LTO, so the fir
 Tauri downloads WiX and NSIS on the first build to make the installers. To build only the executable, skip them:
 
 ```sh
-npm --prefix app run tauri build -- --no-bundle
+npm --prefix app run build:exe
 ```
+
+This skips the installers and also copies the exe to `target/release/stl-browser-<version>.exe`, with the version taken
+from `app/src-tauri/tauri.conf.json`. Upload that file to a GitHub release.
 
 ## Run it
 
-Start `target/release/app.exe`, or run one of the installers and start **STL Browser** from the Start menu.
+Start `target/release/app.exe` (or `stl-browser-<version>.exe`), or run one of the installers and start **STL Browser** from the Start menu.
 
 1. Click **Add folder** and pick a folder with your collection, e.g. `D:\Models`.
 2. Indexing runs in the background. The first index of a large collection can take a few minutes, mostly spent
