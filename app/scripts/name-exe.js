@@ -9,5 +9,14 @@ const { version } = JSON.parse(readFileSync(join(app, "src-tauri", "tauri.conf.j
 const release = join(app, "..", "target", "release");
 const out = join(release, `stl-browser-${version}.exe`);
 
-copyFileSync(join(release, "app.exe"), out);
+try {
+  copyFileSync(join(release, "app.exe"), out);
+} catch (e) {
+  // Windows locks a running exe, so a copy of the app that is still open can't be replaced
+  if (e.code === "EBUSY" || e.code === "EPERM") {
+    console.error(`Can't overwrite ${out}: it is probably still running. Close it and run this again.`);
+    process.exit(1);
+  }
+  throw e;
+}
 console.log(`Copied the release build to ${out}`);
