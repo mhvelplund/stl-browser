@@ -1,19 +1,19 @@
 <script lang="ts">
-  import "$lib/theme.css";
+  import "#lib/theme.css";
   import { onMount } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { open as pickFolder } from "@tauri-apps/plugin-dialog";
-  import * as api from "$lib/api";
-  import type { ExtractProgress, IndexDone, IndexProgress, Item, Listing, Status, View } from "$lib/api";
-  import ContextMenu, { type Entry } from "$lib/ContextMenu.svelte";
-  import { extractHint } from "$lib/extractrun";
-  import { requests, slotKey, slots } from "$lib/carousel";
-  import { idle, step, type Run, type RunEvent } from "$lib/indexrun";
-  import { folderSummary } from "$lib/items";
-  import { goBack, goTo, open, settle, start, up, type Nav } from "$lib/nav";
-  import StatusBar from "$lib/StatusBar.svelte";
-  import TileGrid from "$lib/TileGrid.svelte";
-  import Toolbar from "$lib/Toolbar.svelte";
+  import * as api from "#lib/api.ts";
+  import type { ExtractProgress, IndexDone, IndexProgress, Item, Listing, Status, View } from "#lib/api.ts";
+  import ContextMenu, { type Entry } from "#lib/ContextMenu.svelte";
+  import { extractHint } from "#lib/extractrun.ts";
+  import { requests, slotKey, slots } from "#lib/carousel.ts";
+  import { idle, step, type Run, type RunEvent } from "#lib/indexrun.ts";
+  import { folderSummary } from "#lib/items.ts";
+  import { goBack, goTo, open, settle, start, up, type Nav } from "#lib/nav.ts";
+  import StatusBar from "#lib/StatusBar.svelte";
+  import TileGrid from "#lib/TileGrid.svelte";
+  import Toolbar from "#lib/Toolbar.svelte";
 
   let view = $state<View>("models");
   let nav = $state<Nav>(start());
