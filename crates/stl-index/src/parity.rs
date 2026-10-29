@@ -49,51 +49,26 @@ pub fn collection_stats(conn: &Connection) -> rusqlite::Result<BTreeMap<String, 
     Ok(out)
 }
 
-/// The spot checks from `docs/archive-patterns.md`: (name, SQL returning one value). A check
-/// passes when our value equals the prototype's.
-pub const SPOT_CHECKS: &[(&str, &str)] = &[
-    ("Northern Trikers", "SELECT group_concat(variants || ' imgs=' || image_count, '; ') FROM models WHERE name = 'Northern Trikers'"),
-    (
-        "STARWALKERS",
-        "SELECT group_concat(name || ' ' || variants || ' ' || part_groups, '; ') FROM (SELECT * FROM models WHERE name LIKE 'STARWALKERS%' ORDER BY name)",
-    ),
-    (
-        "Grimlax 842 Spiderwalker",
-        "SELECT group_concat(m.name || ' hero=' || coalesce(a.name, '-'), '; ') FROM models m LEFT JOIN assets a ON a.id = m.hero_asset_id WHERE m.catalog_id = '842'",
-    ),
-    (
-        "Quick Rules from nested .7z",
-        "SELECT count(DISTINCT mf.model_id) FROM model_files mf JOIN entries e ON e.id = mf.entry_id JOIN models m ON m.id = mf.model_id
-         WHERE e.path LIKE '%.7z/%' AND m.breadcrumb LIKE '%Quick Rules%'",
-    ),
-    ("Skydrake", "SELECT count(*) FROM models WHERE name = 'Skydrake'"),
-    ("Golden Guard Builder", "SELECT count(*) FROM models WHERE name LIKE '%Golden%Guard%Builder%'"),
-    ("Jetpack lads pk1", "SELECT group_concat(variants || ' imgs=' || image_count, '; ') FROM models WHERE name = 'Jetpack lads pk1'"),
-    (
-        "RoK AGG/CCW/COM",
-        "SELECT group_concat(name || ' ' || variants || ' imgs=' || image_count, '; ') FROM (SELECT * FROM models WHERE name IN ('RoK AGG', 'RoK CCW', 'RoK COM') ORDER BY name)",
-    ),
-    ("Aurelion", "SELECT group_concat(variants, '; ') FROM models WHERE name = 'Aurelion'"),
-    (
-        "SF Empress final",
-        "SELECT group_concat(a.name, '; ') FROM models m JOIN assets a ON a.id = m.hero_asset_id WHERE m.name = 'SF Empress final'",
-    ),
-    (
-        "XENOBUGS poster",
-        "SELECT group_concat(a.role || ' -> ' || coalesce(g.name, '-'), '; ') FROM assets a LEFT JOIN groups g ON g.id = a.group_id
-         WHERE a.name = 'SQD_-_XENOBUGS_Complete.jpg'",
-    ),
-    (
-        "XENOBUGS units with own picture",
-        "SELECT sum(m.image_count > 0) || '/' || count(*) FROM models m
-         WHERE m.group_id IN (SELECT group_id FROM assets WHERE name = 'SQD_-_XENOBUGS_Complete.jpg' AND model_id IS NULL)",
-    ),
-    (
-        "Archivist Zarvos editions",
-        "SELECT group_concat(coalesce(edition, '-'), ',') FROM (SELECT edition FROM models WHERE name = 'Archivist Zarvos' ORDER BY edition)",
-    ),
-    ("Ancient Alien Pylon", "SELECT count(*) FROM models WHERE name = 'Ancient Alien Pylon'"),
-];
+/// A named SQL query returning one value. `stlx parity` runs each one on both DBs and the check
+/// passes when the values are equal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpotCheck {
+    pub name: String,
+    pub sql: String,
+}
+
+/// Spot checks are tied to a real collection, so they live outside the repo: a JSON array of
+/// `{"name": …, "sql": …}` objects (`spot-checks.json` in the app dir for `stlx parity`).
+pub fn load_spot_checks(path: &std::path::Path) -> Result<Vec<SpotCheck>, Box<dyn std::error::Error>> {
+    let items: Vec<serde_json::Value> = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    items
+        .iter()
+        .map(|v| match (v["name"].as_str(), v["sql"].as_str()) {
+            (Some(name), Some(sql)) => Ok(SpotCheck { name: name.into(), sql: sql.into() }),
+            _ => Err(format!("{}: every spot check needs a \"name\" and an \"sql\" string", path.display()).into()),
+        })
+        .collect()
+}
 
 /// Spot-check values are equal, ignoring JSON list spacing (Python writes `", "`, we write `","`).
 pub fn same_value(ours: &str, proto: &str) -> bool {
@@ -101,9 +76,8 @@ pub fn same_value(ours: &str, proto: &str) -> bool {
     norm(ours) == norm(proto)
 }
 
-/// The value of a spot check, as text (`NULL` for no value).
-pub fn spot_value(conn: &Connection, name: &str) -> rusqlite::Result<String> {
-    let sql = SPOT_CHECKS.iter().find(|(n, _)| *n == name).map(|(_, s)| *s).ok_or(rusqlite::Error::InvalidQuery)?;
+/// The value of a spot check's SQL, as text (`NULL` for no value).
+pub fn spot_value(conn: &Connection, sql: &str) -> rusqlite::Result<String> {
     let v: Value = conn.query_row(sql, [], |r| r.get(0))?;
     Ok(match v {
         Value::Null => "NULL".into(),
@@ -146,11 +120,27 @@ mod tests {
     }
 
     #[test]
-    fn spot_checks_run_on_our_schema() {
+    fn spot_checks_load_and_run_on_our_schema() {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("index.db")).unwrap();
-        for (name, _) in SPOT_CHECKS {
-            spot_value(&conn, name).unwrap();
-        }
+        let file = dir.path().join("spot-checks.json");
+        std::fs::write(
+            &file,
+            r#"[{"name": "variants", "sql": "SELECT group_concat(variants || ' imgs=' || image_count, '; ') FROM models WHERE name = 'Kit'"},
+                {"name": "posters", "sql": "SELECT count(*) FROM assets WHERE role = 'poster'"}]"#,
+        )
+        .unwrap();
+        let checks = load_spot_checks(&file).unwrap();
+        assert_eq!(checks.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["variants", "posters"]);
+        assert_eq!(spot_value(&conn, &checks[0].sql).unwrap(), "NULL");
+        assert_eq!(spot_value(&conn, &checks[1].sql).unwrap(), "0");
+    }
+
+    #[test]
+    fn spot_checks_need_name_and_sql() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("spot-checks.json");
+        std::fs::write(&file, r#"[{"name": "no sql"}]"#).unwrap();
+        assert!(load_spot_checks(&file).is_err());
     }
 }

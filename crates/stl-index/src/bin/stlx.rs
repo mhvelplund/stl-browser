@@ -126,17 +126,23 @@ fn parity(conn: &rusqlite::Connection, proto: &str) -> Result<(), Box<dyn std::e
     let roles: Vec<String> = roles.iter().map(|(r, (x, y))| format!("{r} {x}/{y}")).collect();
     println!("assets by role (ours/proto): {}", roles.join(" · "));
     println!();
+    let file = paths::app_dir().join("spot-checks.json");
+    if !file.exists() {
+        println!("no spot checks ({} not found)", file.display());
+        return Ok(());
+    }
+    let checks = parity::load_spot_checks(&file)?;
     let mut failed = 0;
-    for (name, _) in parity::SPOT_CHECKS {
-        let (x, y) = (parity::spot_value(conn, name)?, parity::spot_value(&p, name)?);
+    for c in &checks {
+        let (x, y) = (parity::spot_value(conn, &c.sql)?, parity::spot_value(&p, &c.sql)?);
         if parity::same_value(&x, &y) {
-            println!("PASS {name}: {x}");
+            println!("PASS {}: {x}", c.name);
         } else {
             failed += 1;
-            println!("FAIL {name}: ours={x} proto={y}");
+            println!("FAIL {}: ours={x} proto={y}", c.name);
         }
     }
-    println!("spot checks: {}/{} pass", parity::SPOT_CHECKS.len() - failed, parity::SPOT_CHECKS.len());
+    println!("spot checks: {}/{} pass", checks.len() - failed, checks.len());
     Ok(())
 }
 
