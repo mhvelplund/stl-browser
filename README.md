@@ -7,14 +7,16 @@ anything out to Explorer to extract it.
 
 Built with Rust and Tauri 2, with a Svelte 5 + TypeScript UI. **Windows only.**
 
+![STL Browser](docs/img/screenshot.jpg)
+
 ## Features
 
-- **Index:** added folders go into a SQLite index under `~/.stl-browser/`. Rescans are incremental, so unchanged
-  folders take almost no time.
+- **Index:** added folders go into a SQLite index under `~/.stl-browser/`. Rescans are incremental, so unchanged folders
+  take almost no time.
 - **Archives:** ZIP, 7Z and RAR are read natively, so 7-Zip and WinRAR aren't needed. Archives nested inside other
   archives are read up to 3 levels deep. Password-protected archives show a padlock and are never opened.
-- **Two views:** *Models* groups files into detected models with their images. *Files* shows the physical layout,
-  with archives opened like folders.
+- **Two views:** *Models* groups files into detected models with their images. *Files* shows the physical layout, with
+  archives opened like folders.
 - **Thumbnails:** images are scaled, and STL/OBJ meshes are rendered on the CPU. Folders get a picture carousel.
 - **Drag-out and "Extract to…":** drag a model, file or folder straight out of an archive into Explorer.
 
@@ -22,10 +24,11 @@ Tags, search and filters are planned. See [`docs/index.md`](docs/index.md) for t
 
 ## Download
 
-Download [`stl-browser-v0.1.0.exe`](https://github.com/mhvelplund/stl-browser/releases/download/v0.1.0/stl-browser-v0.1.0.exe)
-from the [v0.1.0 release](https://github.com/mhvelplund/stl-browser/releases/tag/v0.1.0). It is a standalone
-executable, so there's nothing to install. It needs Windows 10 or 11 with the WebView2 runtime, which Windows 11 already
-has. The exe isn't code-signed, so Windows SmartScreen may warn you the first time you start it.
+Download
+[`stl-browser-v0.1.0.exe`](https://github.com/mhvelplund/stl-browser/releases/download/v0.1.0/stl-browser-v0.1.0.exe)
+from the [v0.1.0 release](https://github.com/mhvelplund/stl-browser/releases/tag/v0.1.0). It is a standalone executable,
+so there's nothing to install. It needs Windows 10 or 11 with the WebView2 runtime, which Windows 11 already has. The
+exe isn't code-signed, so Windows SmartScreen may warn you the first time you start it.
 
 To build from source instead, read on.
 
@@ -33,8 +36,8 @@ To build from source instead, read on.
 
 - Windows 10 or 11 with the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/). Windows 11
   already has it.
-- [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the
-  **Desktop development with C++** workload. Tauri and the bundled `unrar` C++ sources need it.
+- [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development
+  with C++** workload. Tauri and the bundled `unrar` C++ sources need it.
 - [Rust](https://rustup.rs/) stable 1.85 or newer (the workspace uses edition 2024), with the default MSVC toolchain.
 - [Node.js](https://nodejs.org/) 20.19+ or 22.12+ (needed by Vite 8), with npm.
 
@@ -66,11 +69,12 @@ from `app/src-tauri/tauri.conf.json`. Upload that file to a GitHub release.
 
 ## Run it
 
-Start `target/release/app.exe` (or `stl-browser-<version>.exe`), or run one of the installers and start **STL Browser** from the Start menu.
+Start `target/release/app.exe` (or `stl-browser-<version>.exe`), or run one of the installers and start **STL Browser**
+from the Start menu.
 
 1. Click **Add folder** and pick a folder with your collection, e.g. `D:\Models`.
-2. Indexing runs in the background. The first index of a large collection can take a few minutes, mostly spent
-   listing archives. Later rescans only look at what changed.
+2. Indexing runs in the background. The first index of a large collection can take a few minutes, mostly spent listing
+   archives. Later rescans only look at what changed.
 3. Browse in the *Models* or *Files* view. Drag items out to Explorer, or use **Extract to…**.
 
 The app keeps its data in `%USERPROFILE%\.stl-browser\`:
