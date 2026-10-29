@@ -20,6 +20,15 @@ Built with Rust and Tauri 2, with a Svelte 5 + TypeScript UI. **Windows only.**
 
 Tags, search and filters are planned. See [`docs/index.md`](docs/index.md) for the milestone status.
 
+## Download
+
+Download [`stl-browser-v0.1.0.exe`](https://github.com/mhvelplund/stl-browser/releases/download/v0.1.0/stl-browser-v0.1.0.exe)
+from the [v0.1.0 release](https://github.com/mhvelplund/stl-browser/releases/tag/v0.1.0). It is a standalone
+executable, so there's nothing to install. It needs Windows 10 or 11 with the WebView2 runtime, which Windows 11 already
+has. The exe isn't code-signed, so Windows SmartScreen may warn you the first time you start it.
+
+To build from source instead, read on.
+
 ## Prerequisites
 
 - Windows 10 or 11 with the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/). Windows 11
