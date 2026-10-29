@@ -164,7 +164,9 @@ These are the prototype's numbers on both volumes in one index:
 
 ### Spot checks
 
-These must hold in the Rust port:
+These must hold in the Rust port. The real queries are tied to a real collection, so they aren't in the repo:
+`stlx parity` reads them from `spot-checks.json` (a JSON array of `{"name", "sql"}`) in the app dir and skips them
+if the file is missing. The names below are stand-ins for the real ones.
 - `Northern Trikers`: 1 model, 2 variants, 6 images.
 - STARWALKERS: 1 model, 3 variants, part groups ARMS/HEADS/….
 - Grimlax 842 Spiderwalker: image found inside Unsupported.

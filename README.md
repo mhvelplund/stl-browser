@@ -65,7 +65,8 @@ npm --prefix app run build:exe
 ```
 
 This skips the installers and also copies the exe to `target/release/stl-browser-<version>.exe`, with the version taken
-from `app/src-tauri/tauri.conf.json`. Upload that file to a GitHub release.
+from `app/src-tauri/tauri.conf.json`. Upload that file to a GitHub release. It also remaps local source paths (your
+Cargo home and the checkout) so the exe doesn't embed paths from your machine.
 
 ## Run it
 

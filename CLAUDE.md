@@ -27,7 +27,7 @@ STL_BROWSER_RAR_FIXTURE=<some.rar> cargo test -p stl-scan --test rar -- --ignore
 STL_BROWSER_DRAG_CHECK="models|<folder>|<name>" cargo test -p app --lib drag_real -- --ignored   # real-data drop; needs an indexed STL_BROWSER_HOME
 cargo run --release -p stl-index --bin stlx -- add <dir> | index | extract <entry_id> <out>   # dev CLI
 cargo run --release -p stl-index --bin stlx -- tree models|files [<path>] [--depth N] [--real]  # print a view
-cargo run --release -p stl-index --bin stlx -- parity <prototype.db>   # compare resolved tables with the prototype
+cargo run --release -p stl-index --bin stlx -- parity <prototype.db>   # compare resolved tables with the prototype (+ spot-checks.json in the app dir)
 npm --prefix app run tauri dev                           # launch the app
 npm --prefix app run check                               # svelte-check (UI type check)
 npm --prefix app test                                    # UI logic tests (node --test on src/lib/*.test.ts)
@@ -86,8 +86,10 @@ bookkeeping for the regenerable `~/.stl-browser/thumbs/` cache; its rows cascade
 - **`unrar_sys` doesn't link `advapi32`**; `crates/stl-scan/src/lib.rs` links it explicitly.
 - **unrar can't write to a still-open file**: close the handle first (`NamedTempFile::into_temp_path`), or nested
   archives inside RARs silently fail.
-- **No RAR fixtures** (can't create RARs without WinRAR). Verify RAR paths against real data in
-  `D:\Models\Sci-Fi Collection Vol.1`; its Grimlax `.rar` (34 nested zips) is a good regression check.
+- **No RAR fixtures** (can't create RARs without WinRAR). Verify RAR paths against a real collection with a RAR
+  holding many nested zips. Where that data lives on this machine goes in the git-ignored `CLAUDE.local.md`.
+- **No real names in the repo.** Tests and docs use invented collection, studio and model names; keep it that way
+  (no franchise, studio or product names, no machine-specific paths).
 - **Leave `.3d-model-library\` folders alone**: they belong to another tool. Discovery skips dot-folders.
 - **Shell heredocs here mangle backslashes.** Write source files with the editor tools.
 - **Don't kill processes by image name** (e.g. `taskkill /IM node.exe`); find a dev server by its port.
