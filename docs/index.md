@@ -262,13 +262,16 @@ prints either view.
     except for the root's own one (it holds only the files directly in the root). At Library, everything is rescanned.
   - **Switching views** goes to the deepest folder of the other view whose real path contains this one. If there is
     none, it goes to the shallowest folder below it. If there is still none, it tries the parent folder, up to Library.
-  - **The carousel** shows images (up to 11) and then meshes (up to 6). A composite is still filled with images only,
-    so a model with one image and some STLs doesn't get a 2×2.
+  - **The carousel** shows images (up to 11) and then meshes (up to 6). A composite is filled up with images, and with
+    meshes only when the folder has no images. That way a model with one image and some STLs doesn't get a 2×2.
   - **A `composite` choice and a stale choice** don't stand in for a folder: its parents look inside it as before.
   - **Opening a file:**
     - A loose file opens in place.
     - An archive member is written to `%TEMP%\stl-browser-open\<n>\` first, and that folder is emptied at app start.
     - Opening is refused during an index run, like Extract to….
+    - Only models, scenes, images and documents (not `.html`) are opened, never programs, scripts or shortcuts from an
+      archive. A copy written from an archive gets a Mark-of-the-Web (`Zone.Identifier`, internet zone).
+    - A second double-click while a file is still being extracted is ignored.
 
 - **Thumbnail content hash.** Archive entries use the CRC32 + size stored in the archive, so the cache can be checked
   without extracting. Loose files use blake3 of their bytes.
@@ -478,6 +481,12 @@ From the usability pass:
 - **Files opened from archives stay in `%TEMP%`** until the next app start. One still open in its app at that point
   isn't deleted.
 - **More thumbnails per folder:** carousels now also ask for up to 6 STL renders, so a first visit renders more.
+- **Listings walk further:** collecting a folder's pictures now goes on until both the image and the mesh caps are
+  reached, so a big subtree with only images is walked to the end. `locate` lowercases every real path of the target
+  view on each switch. Both are fine on Vol.1 + Vol.2 so far.
+- **A rescan of a folder renamed on disk** deletes its sources, but its new name is outside the scope and isn't added.
+  Its models are gone until a parent folder is rescanned.
+- **Opening a file from an archive can't be stopped.**
 
 ## Working notes
 

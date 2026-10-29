@@ -156,7 +156,8 @@ pub fn status(state: tauri::State<'_, AppState>) -> Result<Status, String> {
 /// changed, in the background (`index-progress`, `index-done`).
 #[tauri::command(async)]
 pub fn rescan(app: tauri::AppHandle, state: tauri::State<'_, AppState>, view: View, path: Vec<String>) -> Result<(), String> {
-    let scope = browse::scope(&*state.views()?, view, &path)?;
+    // everything, even when the views can't be built: a full rescan is the way to recover
+    let scope = if path.is_empty() { None } else { browse::scope(&*state.views()?, view, &path)? };
     indexer::start_index(app, scope)
 }
 

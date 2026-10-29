@@ -162,9 +162,31 @@ pub fn open_dir() -> PathBuf {
     std::env::temp_dir().join("stl-browser-open")
 }
 
+/// Files a double-click may hand to Windows: archives are untrusted, so never programs,
+/// scripts, shortcuts or web pages.
+fn openable(name: &str) -> bool {
+    use stl_core::names::{Kind, ext, kind_of};
+    match kind_of(name) {
+        Kind::Model | Kind::Scene | Kind::Image => true,
+        Kind::Doc | Kind::Meta => !matches!(ext(name).as_str(), ".html" | ".htm"),
+        _ => false,
+    }
+}
+
+/// Mark a file written from an archive as downloaded (Mark-of-the-Web), so Windows treats it
+/// with the same care as the archive it came from. Best effort: not every disk has streams.
+fn mark_downloaded(path: &Path) {
+    let mut ads = path.as_os_str().to_owned();
+    ads.push(":Zone.Identifier");
+    let _ = std::fs::write(ads, "[ZoneTransfer]\r\nZoneId=3\r\n");
+}
+
 /// A path to open the file `name` (in the folder at `path` of `view`) from: a loose file's own
 /// path, or a copy of an archive member written to a new folder below `tmp`.
 pub fn stage_for_open(state: &AppState, view: View, path: &[String], name: &str, tmp: &Path) -> Result<PathBuf, String> {
+    if !openable(name) {
+        return Err(format!("{name} is not a model, picture or document, so it is not opened (use Extract to…)"));
+    }
     let (files, skipped) = build_export(state, view, path, &[name.to_string()])?;
     let f = match files.as_slice() {
         [f] if !f.is_dir => f,
@@ -183,7 +205,9 @@ pub fn stage_for_open(state: &AppState, view: View, path: &[String], name: &str,
     if let Some((_, e)) = r.failed.first() {
         return Err(e.clone());
     }
-    Ok(dir.join(&f.rel))
+    let out = dir.join(&f.rel);
+    mark_downloaded(&out);
+    Ok(out)
 }
 
 /// Open the file `name` (in the folder at `path` of `view`) in its Windows app; a file in an
@@ -310,6 +334,21 @@ mod tests {
         assert!(p.starts_with(&tmp), "{}", p.display());
         assert_eq!(p.file_name().unwrap(), "k.stl");
         assert_eq!(std::fs::read(&p).unwrap(), b"kk");
+        let mut ads = p.as_os_str().to_owned();
+        ads.push(":Zone.Identifier");
+        assert!(std::fs::read_to_string(ads).unwrap().contains("ZoneId=3"));
+    }
+
+    #[test]
+    fn programs_and_web_pages_are_not_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let tmp = dir.path().join("open");
+        for name in ["setup.exe", "run.bat", "x.lnk", "page.html", "a.js"] {
+            let e = stage_for_open(&state, View::Models, &segs(&["vol", "coll", "orc"]), name, &tmp).unwrap_err();
+            assert!(e.contains("not opened"), "{name}: {e}");
+        }
+        assert!(openable("notes.txt") && openable("guide.pdf") && openable("orc.STL") && openable("x.lys") && openable("p.jpg"));
     }
 
     #[test]

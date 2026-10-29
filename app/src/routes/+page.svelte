@@ -101,13 +101,19 @@
     else if (i.kind !== "locked") launch(i);
   }
 
+  /** The file being opened, if any: a second double-click doesn't extract it again. */
+  let launching: string | null = null;
   async function launch(item: Item) {
+    if (launching) return;
+    launching = item.name;
     notice = `Opening ${item.name}…`;
     try {
       await api.openFile(view, nav.path, item.name);
       notice = `Opened ${item.name}`;
     } catch (e) {
       notice = `Could not open ${item.name}: ${e}`;
+    } finally {
+      launching = null;
     }
   }
 
@@ -118,14 +124,17 @@
     if (b) load(b.nav, b.scroll);
   }
   /** Switch views, landing on the folder that matches this one. */
+  let switching = 0;
   async function switchView(v: View) {
-    if (v === view) return;
+    const my = ++switching;
+    if (v === view) return; // also drops a switch still waiting for `locate`
     let path: string[] = [];
     try {
       path = await api.locate(view, nav.path, v);
     } catch {
       // the library root
     }
+    if (my !== switching) return;
     view = v;
     load({ path, back: [] });
   }

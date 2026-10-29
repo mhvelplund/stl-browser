@@ -61,7 +61,8 @@ impl ScanRun<'_> {
         let Some(scope) = self.scope else { return true };
         let (root, path) = (path_key(root), path_key(path));
         scope.iter().any(|s| {
-            let archive = s.file_name().is_some_and(|n| stl_core::names::kind_of(&n.to_string_lossy()) == stl_core::names::Kind::Archive);
+            // an archive file (or one gone since), not a folder that happens to be named `x.zip`
+            let archive = !s.is_dir() && s.file_name().is_some_and(|n| stl_core::names::kind_of(&n.to_string_lossy()) == stl_core::names::Kind::Archive);
             let s = path_key(s);
             is_under(&path, &s) || (kind == SourceKind::Folder && !archive && path != root && is_under(&s, &path))
         })
@@ -210,11 +211,12 @@ fn scan_root_with(
     if covering_root(conn, root_id)?.is_some() {
         return Ok(ScanStats::default());
     }
-    if !root.is_dir() {
-        return Err(IndexError::RootMissing(root));
-    }
+    // a rescan of one folder says nothing about the other roots, missing or not
     if !run.touches(&root) {
         return Ok(ScanStats::default());
+    }
+    if !root.is_dir() {
+        return Err(IndexError::RootMissing(root));
     }
     let mut sources = discover(&root, &mut |w| progress(Progress::Warning(&w)))?;
     sources.retain(|s| run.covers(&root, s.kind, &s.path));

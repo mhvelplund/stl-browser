@@ -147,3 +147,21 @@ fn scoped_index_resolves_only_the_scope() {
     let s = resolvestore::index_run(&mut f.conn, &ListOptions::default(), &run, &mut |_| {}).unwrap();
     assert_eq!((s.scan.listed, s.resolved), (1, 1));
 }
+
+#[test]
+fn scoped_index_ignores_unrelated_missing_roots() {
+    let mut f = fixture();
+    index(&mut f);
+    let gone = f.root.parent().unwrap().join("Offline");
+    scanstore::add_root(&f.conn, &gone).unwrap();
+    let scope = vec![f.root.join("B")];
+    let run = scanstore::ScanRun { scope: Some(&scope), ..Default::default() };
+    let mut warnings = Vec::new();
+    resolvestore::index_run(&mut f.conn, &ListOptions::default(), &run, &mut |p| {
+        if let scanstore::Progress::Warning(w) = p {
+            warnings.push(w.to_string());
+        }
+    })
+    .unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
