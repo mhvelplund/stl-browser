@@ -29,6 +29,8 @@ cargo run --release -p stl-index --bin stlx -- add <dir> | index | extract <entr
 cargo run --release -p stl-index --bin stlx -- tree models|files [<path>] [--depth N] [--real]  # print a view
 cargo run --release -p stl-index --bin stlx -- parity <prototype.db>   # compare resolved tables with the prototype (+ spot-checks.json in the app dir)
 npm --prefix app run tauri dev                           # launch the app
+npm --prefix app run build:exe                           # release exe only -> target/release/stl-browser-<version>.exe
+npm --prefix app run build:installer                     # NSIS installer -> target/release/bundle/nsis/
 npm --prefix app run check                               # svelte-check (UI type check)
 npm --prefix app test                                    # UI logic tests (node --test on src/lib/*.test.ts)
 ```

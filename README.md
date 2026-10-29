@@ -47,7 +47,7 @@ From the repository root:
 
 ```sh
 npm --prefix app install
-npm --prefix app run tauri build
+npm --prefix app run build:installer
 ```
 
 This builds the Svelte UI and then the Rust app in release mode (LTO, so the first build takes a while). It produces:
@@ -55,22 +55,23 @@ This builds the Svelte UI and then the Rust app in release mode (LTO, so the fir
 | Output                                   | What it is                                 |
 |------------------------------------------|--------------------------------------------|
 | `target/release/app.exe`                 | The app itself; it runs without installing |
-| `target/release/bundle/msi/*.msi`        | Windows Installer package                  |
-| `target/release/bundle/nsis/*-setup.exe` | NSIS installer                             |
+| `target/release/bundle/nsis/*-setup.exe` | NSIS installer (per-user, no admin needed) |
 
-Tauri downloads WiX and NSIS on the first build to make the installers. To build only the executable, skip them:
+Tauri downloads NSIS on the first build. Like `build:exe` below, `build:installer` remaps local source paths so the
+binary doesn't embed paths from your machine (a plain `tauri build` doesn't). To build only the executable, skip the
+installer:
 
 ```sh
 npm --prefix app run build:exe
 ```
 
-This skips the installers and also copies the exe to `target/release/stl-browser-<version>.exe`, with the version taken
+This skips the installer and also copies the exe to `target/release/stl-browser-<version>.exe`, with the version taken
 from `app/src-tauri/tauri.conf.json`. Upload that file to a GitHub release. It also remaps local source paths (your
 Cargo home and the checkout) so the exe doesn't embed paths from your machine.
 
 ## Run it
 
-Start `target/release/app.exe` (or `stl-browser-<version>.exe`), or run one of the installers and start **STL Browser**
+Start `target/release/app.exe` (or `stl-browser-<version>.exe`), or run the installer and start **STL Browser**
 from the Start menu.
 
 1. Click **Add folder** and pick a folder with your collection, e.g. `D:\Models`.
