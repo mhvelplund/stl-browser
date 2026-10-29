@@ -32,6 +32,7 @@ anything out to Explorer to extract it.
 | 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                      | done                                          |
 | 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | done                                          |
 | 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | done                                          |
+| 6.5. Usability pass: stop buttons, folder rescans, view-switch place, open files, STL pictures | done (branch `usability-pass`)              |
 | 7. Tags, search, filters                                                                     | later (only the database tables exist so far) |
 
 Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and
@@ -75,6 +76,20 @@ Milestone 6 was checked on Vol.1 without a mouse:
 - **`begin_drag` with no button held** returns at once and starts no drag.
 - **Checked by hand afterwards** (2026-10-29): a real mouse drag from the window to Explorer works, Escape during a drag
   writes nothing, and the context menu's Extract to… works.
+
+The usability pass (6.5) was checked in `tauri dev` on a scratch index of Vol.1, driven over CDP:
+
+- **Rescan folder in Grimlax**, with every source marked stale, re-listed only `Grimlax.rar` (1 of 45) in 15 s.
+- **Stop during Rescan all** ended after 5 of 45 sources and deleted nothing: 45 sources, 18,050 files and 447 models
+  stayed. The run ended 9 s after Stop, because the archive being listed has to finish first.
+- **Stop during Extract to…** of `ancient sarcophagus` ended 0.19 s after Stop, with 3 of 65 files written.
+- **Switching views** in `ancient sarcophagus` lands on `grimlax/731 - ancient sarcophagus` in Files, and back.
+- **The carousel** of `ancient sarcophagus` has its JPG and then 6 STL renders, with the JPG as the default.
+  - "Use as folder thumbnail" on an STL in `supported` makes it that folder's picture.
+  - The model then takes only that one picture from `supported`.
+- **A synthetic mouse Back** (button 3) goes up one folder and the webview doesn't navigate.
+- **Not checked by script:** double-clicking a file to open it in its Windows app (it would launch apps on the
+  desktop), and a real mouse's Back button.
 
 ## Architecture
 
@@ -226,8 +241,34 @@ prints either view.
   - Files whose names collide get a numbered postfix: `ORC.STL` and `Orc.stl` become `orc_1.stl` and `orc_2.stl`.
 - **Hovering over any element shows its real path** *(added after milestone 2)*. Each step into an archive is marked
   with `!`, e.g. `folder/example.zip!orcs/mech.zip!leg.stl`.
+- **Usability pass** *(added after milestone 6)*:
+  - Slow tasks (indexing, Extract to…) have a Stop button next to their progress bar.
+  - The mouse Back button goes to the parent folder.
+  - A folder's carousel offers its STL renders too, after its images. A file tile's right-click menu has "Use as folder
+    thumbnail".
+  - A folder's chosen picture counts as that folder's picture for its parents: their carousels don't look inside it.
+  - "Rescan all" is "Rescan folder" inside a folder and rescans only that folder and its subfolders. Right-click →
+    Rescan does the same for a folder tile.
+  - Switching between Models and Files keeps you at, or near, the same place.
+  - Double-clicking a file opens it in its Windows app.
 
 ### Made by me (correct any that are wrong)
+
+- **Usability pass details:**
+  - **A stopped index** deletes no vanished sources, because it hasn't seen them all. It still resolves the
+    collections it changed, then skips the remaining roots.
+  - **A rescan's scope** comes from the open folder's real paths, cut at the first archive. Discovery still walks the
+    whole root, but only sources in scope are listed or deleted. A folder source counts when the scope is inside it,
+    except for the root's own one (it holds only the files directly in the root). At Library, everything is rescanned.
+  - **Switching views** goes to the deepest folder of the other view whose real path contains this one. If there is
+    none, it goes to the shallowest folder below it. If there is still none, it tries the parent folder, up to Library.
+  - **The carousel** shows images (up to 11) and then meshes (up to 6). A composite is still filled with images only,
+    so a model with one image and some STLs doesn't get a 2×2.
+  - **A `composite` choice and a stale choice** don't stand in for a folder: its parents look inside it as before.
+  - **Opening a file:**
+    - A loose file opens in place.
+    - An archive member is written to `%TEMP%\stl-browser-open\<n>\` first, and that folder is emptied at app start.
+    - Opening is refused during an index run, like Extract to….
 
 - **Thumbnail content hash.** Archive entries use the CRC32 + size stored in the archive, so the cache can be checked
   without extracting. Loose files use blake3 of their bytes.
@@ -415,7 +456,7 @@ From the milestone 6 review:
 - **Extract to… may act on the wrong folder.** It reads the current folder after the folder picker returns. Backspace
   with the context menu open also navigates. Either way it can use another folder (usually giving "no longer exists").
 - **The status line lists every failed file.** A source deleted since indexing can fill it with thousands of entries.
-- **Extract to… can't be cancelled.** Closing the app mid-way leaves `.part` files.
+- **Closing the app during Extract to…** leaves `.part` files. (It can be stopped since 6.5.)
 - **The app never learns how a drag ended.** A file that fails shows only in Explorer's own error dialog.
 - **Stream edge cases:**
   - `IStream::Read` doesn't check for a null buffer.
@@ -427,6 +468,16 @@ From the milestone 6 review:
 - **A tiny race:** a button release between the button check and `DoDragDrop` drops onto whatever is under the cursor.
 - **No drag image:** the drag shows only the cursor, with no ghost thumbnail.
 - **Swapped mouse buttons** have not been tested with the OLE key state.
+
+From the usability pass:
+
+- **Stop waits for the current source.** Listing one big archive (Grimlax's RAR, about 15 s) can't be interrupted
+  part-way.
+- **Opening an archive member blocks its command** until the member is extracted, with only "Opening …" in the status
+  bar and no progress.
+- **Files opened from archives stay in `%TEMP%`** until the next app start. One still open in its app at that point
+  isn't deleted.
+- **More thumbnails per folder:** carousels now also ask for up to 6 STL renders, so a first visit renders more.
 
 ## Working notes
 
