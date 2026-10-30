@@ -301,6 +301,8 @@
     onView={switchView}
     onAdd={addFolder}
     onRescan={rescan}
+    searching={false}
+    onSearch={() => {}}
   />
   <main>
     {#if error}
