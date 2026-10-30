@@ -5,6 +5,7 @@ pub mod export;
 pub mod locate;
 pub mod files;
 pub mod models;
+pub mod search;
 
 use indexmap::IndexMap;
 
