@@ -4,13 +4,15 @@
   import { SvelteMap } from "svelte/reactivity";
   import { open as pickFolder } from "@tauri-apps/plugin-dialog";
   import * as api from "#lib/api.ts";
-  import type { ExtractProgress, IndexDone, IndexProgress, Item, Listing, Status, View } from "#lib/api.ts";
+  import type { ExtractProgress, Found, Hit, IndexDone, IndexProgress, Item, Listing, SearchMode, Status, View } from "#lib/api.ts";
   import ContextMenu, { type Entry } from "#lib/ContextMenu.svelte";
   import { extractHint } from "#lib/extractrun.ts";
   import { requests, slotKey, slots } from "#lib/carousel.ts";
   import { idle, step, type Run, type RunEvent } from "#lib/indexrun.ts";
   import { folderSummary } from "#lib/items.ts";
   import { goBack, goTo, open, settle, start, up, type Nav } from "#lib/nav.ts";
+  import ResultList from "#lib/ResultList.svelte";
+  import SearchBar from "#lib/SearchBar.svelte";
   import StatusBar from "#lib/StatusBar.svelte";
   import TileGrid from "#lib/TileGrid.svelte";
   import Toolbar from "#lib/Toolbar.svelte";
@@ -40,6 +42,17 @@
   /** A result to show in the status bar until the next selection. */
   let notice = $state("");
   let visible = { first: 0, last: 0 };
+  /** The search bar: open, its query and toggles, the folder it searches and what it found. */
+  let searching = $state(false);
+  let query = $state("");
+  let mode = $state<SearchMode>("free");
+  let caseSensitive = $state(false);
+  let scope = $state<string[]>([]);
+  let found = $state<Found | null>(null);
+  let searchError = $state("");
+  let selectedHit = $state<Hit | null>(null);
+  let searchSeq = 0;
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let thumbTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** Ask for the thumbnails of what is on screen first, then the rest of the folder (debounced). */
@@ -95,6 +108,66 @@
     }
   }
 
+  function openSearch() {
+    scope = nav.path;
+    searching = true;
+  }
+
+  function closeSearch() {
+    clearTimeout(searchTimer);
+    searchSeq++;
+    searching = false;
+    query = "";
+    found = null;
+    searchError = "";
+    selectedHit = null;
+  }
+
+  /** Search the scope for the query (debounced); a stale reply (the user typed on) is dropped. */
+  function runSearch() {
+    clearTimeout(searchTimer);
+    const my = ++searchSeq;
+    if (!query) {
+      found = null;
+      searchError = "";
+      return;
+    }
+    searchTimer = setTimeout(async () => {
+      try {
+        const f = await api.search(view, scope, query, mode, caseSensitive);
+        if (my !== searchSeq) return;
+        found = f;
+        scope = f.path;
+        searchError = "";
+        if (selectedHit && !f.hits.some((h) => h.key === selectedHit?.key)) selectedHit = null;
+      } catch (e) {
+        if (my !== searchSeq) return;
+        searchError = String(e);
+        found = { path: scope, hits: [], truncated: false };
+      }
+    }, 120);
+  }
+
+  $effect(() => {
+    // re-run on any change to the query or its toggles
+    void [query, mode, caseSensitive];
+    if (searching) runSearch();
+  });
+
+  /** A folder hit opens in the browser (closing search); a file hit in its Windows app. */
+  function openHit(h: Hit) {
+    if (h.openable) {
+      const to = [...h.parent, h.name];
+      closeSearch();
+      load(goTo(nav, to, scroll));
+    } else if (h.kind !== "locked") launch(h, h.parent);
+  }
+
+  function selectHit(h: Hit) {
+    selectedHit = h;
+    notice = "";
+  }
+
   /** A folder opens in the grid; a file in its Windows app. */
   function openItem(i: Item) {
     if (i.openable) load(open(nav, i.name, scroll));
@@ -103,12 +176,12 @@
 
   /** The file being opened, if any: a second double-click doesn't extract it again. */
   let launching: string | null = null;
-  async function launch(item: Item) {
+  async function launch(item: { name: string }, path = nav.path) {
     if (launching) return;
     launching = item.name;
     notice = `Opening ${item.name}…`;
     try {
-      await api.openFile(view, nav.path, item.name);
+      await api.openFile(view, path, item.name);
       notice = `Opened ${item.name}`;
     } catch (e) {
       notice = `Could not open ${item.name}: ${e}`;
@@ -117,9 +190,18 @@
     }
   }
 
-  const goUp = () => nav.path.length && load(up(nav, scroll));
-  const crumb = (path: string[]) => load(goTo(nav, path, scroll));
+  /** Moving through the folders closes search first. */
+  const leaveSearch = () => searching && closeSearch();
+  function goUp() {
+    leaveSearch();
+    if (nav.path.length) load(up(nav, scroll));
+  }
+  function crumb(path: string[]) {
+    leaveSearch();
+    load(goTo(nav, path, scroll));
+  }
   function back() {
+    leaveSearch();
     const b = goBack(nav);
     if (b) load(b.nav, b.scroll);
   }
@@ -128,6 +210,7 @@
   async function switchView(v: View) {
     const my = ++switching;
     if (v === view) return; // also drops a switch still waiting for `locate`
+    leaveSearch();
     let path: string[] = [];
     try {
       path = await api.locate(view, nav.path, v);
@@ -192,15 +275,24 @@
   /** Drag a tile out to Explorer: Rust runs the OLE drag on the main thread. */
   async function dragOut(item: Item) {
     select(item);
+    await dragFrom(nav.path, item.name);
+  }
+
+  function dragHit(h: Hit) {
+    selectHit(h);
+    dragFrom(h.parent, h.name);
+  }
+
+  async function dragFrom(path: string[], name: string) {
     try {
-      const info = await api.beginDrag(view, nav.path, [item.name]);
+      const info = await api.beginDrag(view, path, [name]);
       if (info.skipped) notice = `${info.skipped} item${info.skipped === 1 ? "" : "s"} left out of the drag (locked, or path too long)`;
     } catch (e) {
       notice = `Could not drag: ${e}`;
     }
   }
 
-  async function extract(item: Item) {
+  async function extract(item: { name: string }, path = nav.path) {
     let dest: string | string[] | null;
     try {
       dest = await pickFolder({ directory: true, multiple: false, title: `Extract ${item.name} to` });
@@ -211,20 +303,27 @@
     if (typeof dest !== "string") return;
     try {
       extracting = { index: 0, total: 0, name: item.name };
-      await api.extractTo(view, nav.path, [item.name], dest);
+      await api.extractTo(view, path, [item.name], dest);
     } catch (e) {
       extracting = null;
       notice = `Could not extract: ${e}`;
     }
   }
 
-  function showMenu(item: Item, x: number, y: number) {
+  /** The right-click menu of a tile, or of a search hit (which offers only Open and Extract). */
+  function showMenu(item: Item | Hit, x: number, y: number) {
     const entries: Entry[] = [];
-    if (item.kind !== "locked") entries.push({ label: "Open", action: () => openItem(item) });
-    if (item.kind !== "locked") entries.push({ label: "Extract to…", action: () => extract(item) });
-    if (item.openable && !busy) entries.push({ label: "Rescan", action: () => rescanAt([...nav.path, item.name]) });
-    if (!item.openable && item.pics.length && listing?.key) {
-      entries.push({ label: "Use as folder thumbnail", action: () => useAsFolderThumb(item) });
+    const hit = "parent" in item ? item : null;
+    if (item.kind !== "locked") entries.push({ label: "Open", action: () => (hit ? openHit(hit) : openItem(item as Item)) });
+    if (item.kind !== "locked") entries.push({ label: "Extract to…", action: () => extract(item, hit?.parent) });
+    if (hit) {
+      menu = entries.length ? { x, y, entries } : null;
+      return;
+    }
+    const tile = item as Item;
+    if (tile.openable && !busy) entries.push({ label: "Rescan", action: () => rescanAt([...nav.path, tile.name]) });
+    if (!tile.openable && tile.pics.length && listing?.key) {
+      entries.push({ label: "Use as folder thumbnail", action: () => useAsFolderThumb(tile) });
     }
     menu = entries.length ? { x, y, entries } : null;
   }
@@ -235,6 +334,7 @@
     urls.clear(); // entry ids change when sources are re-listed
     refreshStatus();
     load(nav, scroll, true);
+    if (searching) runSearch(); // the tree changed
   }
 
   function onKey(e: KeyboardEvent) {
@@ -263,7 +363,9 @@
     call().catch((e) => (notice = `Could not stop: ${e}`));
 
   const selectedItem = $derived(listing?.items.find((i) => i.name === selected) ?? null);
-  const footerHint = $derived(notice || (selectedItem ? selectedItem.real.join(" | ") : run.hint || usage));
+  const showingResults = $derived(searching && query !== "");
+  const shownReal = $derived(showingResults ? selectedHit?.real : selectedItem?.real);
+  const footerHint = $derived(notice || (shownReal ? shownReal.join(" | ") : run.hint || usage));
   const noRoots = $derived(status !== null && status.roots.length === 0);
 
   onMount(() => {
@@ -301,11 +403,37 @@
     onView={switchView}
     onAdd={addFolder}
     onRescan={rescan}
-    searching={false}
-    onSearch={() => {}}
+    {searching}
+    onSearch={() => (searching ? closeSearch() : openSearch())}
   />
+  {#if searching}
+    <SearchBar
+      bind:query
+      bind:mode
+      bind:caseSensitive
+      showCase={view === "files"}
+      {scope}
+      error={searchError}
+      note={found?.truncated ? "showing first 1000" : ""}
+      onClose={closeSearch}
+    />
+  {/if}
   <main>
-    {#if error}
+    {#if showingResults}
+      {#if found?.hits.length}
+        <ResultList
+          hits={found.hits}
+          {scope}
+          selected={selectedHit?.key ?? null}
+          onSelect={selectHit}
+          onOpen={openHit}
+          onDragOut={dragHit}
+          onMenu={showMenu}
+        />
+      {:else if found && !searchError}
+        <p class="empty">No matches</p>
+      {/if}
+    {:else if error}
       <p class="empty error">Could not list this folder: {error}</p>
     {:else if noRoots && !busy}
       <div class="empty">
