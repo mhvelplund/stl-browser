@@ -65,6 +65,8 @@ pub struct Info {
 pub struct Node {
     /// Display name, lowercase.
     pub name: String,
+    /// The name as given, case kept; what Files-view search matches.
+    pub label: String,
     pub kind: NodeKind,
     pub children: Vec<NodeId>,
     /// Real paths for hovering; more than one for merged folders.
@@ -91,6 +93,7 @@ impl Tree {
         Tree {
             nodes: vec![Node {
                 name: String::new(),
+                label: String::new(),
                 kind: NodeKind::Root,
                 children: Vec::new(),
                 real: Vec::new(),
@@ -105,6 +108,7 @@ impl Tree {
         let id = self.nodes.len();
         self.nodes.push(Node {
             name: name.to_lowercase(),
+            label: name.to_string(),
             kind,
             children: Vec::new(),
             real: Vec::new(),
