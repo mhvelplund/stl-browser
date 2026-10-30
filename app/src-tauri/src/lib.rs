@@ -61,6 +61,7 @@ pub fn run() {
             commands::app_info,
             commands::list_folder,
             commands::locate,
+            commands::search,
             commands::status,
             commands::rescan,
             commands::cancel_index,

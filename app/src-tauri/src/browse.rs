@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use stl_core::vtree::search::{Field, Matcher, Mode, search as vtree_search};
 use stl_core::vtree::{Counts, Node, NodeId, NodeKind, Tree, counts, is_file_kind};
 use stl_thumb::{ThumbKind, thumb_kind};
 use stl_index::scanstore::IndexError;
@@ -315,6 +316,80 @@ pub fn list(views: &Views, view: View, path: &[String], selected: &HashMap<Strin
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchMode {
+    Free,
+    Word,
+    Regexp,
+}
+
+/// One search result; `parent` is the folder that lists it, so the per-folder commands
+/// (open, drag, extract) work on it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Hit {
+    pub name: String,
+    pub kind: &'static str,
+    pub key: String,
+    pub real: Vec<String>,
+    pub file_kind: Option<String>,
+    pub openable: bool,
+    pub parent: Vec<String>,
+    /// Char ranges `[start, end)` into `name` to highlight.
+    pub marks: Vec<(usize, usize)>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Found {
+    /// The scope actually searched: a prefix of the request when part of it no longer exists.
+    pub path: Vec<String>,
+    pub hits: Vec<Hit>,
+    pub truncated: bool,
+}
+
+pub const SEARCH_LIMIT: usize = 1000;
+
+/// The folders and files below `path` whose names match `query`. The Files view matches names
+/// with their case; the Models view's names are lowercase, so it always ignores case.
+pub fn search(views: &Views, view: View, path: &[String], query: &str, mode: SearchMode, case_sensitive: bool) -> Result<Found, String> {
+    let t = &views.get(view).tree;
+    let (id, used) = t.walk(path);
+    let path = path[..used].to_vec();
+    if query.is_empty() {
+        return Ok(Found { path, hits: Vec::new(), truncated: false });
+    }
+    let mode = match mode {
+        SearchMode::Free => Mode::Free,
+        SearchMode::Word => Mode::Word,
+        SearchMode::Regexp => Mode::Regexp,
+    };
+    let (field, case_sensitive) = match view {
+        View::Files => (Field::Label, case_sensitive),
+        View::Models => (Field::Name, false),
+    };
+    let m = Matcher::new(query, mode, case_sensitive)?;
+    let (found, truncated) = vtree_search(t, id, &path, &m, field, &|n| visible(view, n), SEARCH_LIMIT);
+    let hits = found
+        .into_iter()
+        .map(|h| {
+            let n = &t.nodes[h.id];
+            Hit {
+                name: n.name.clone(),
+                kind: kind_name(n.kind),
+                key: n.key.clone(),
+                real: n.real.clone(),
+                file_kind: n.info.file_kind.clone(),
+                openable: !is_file_kind(n.kind),
+                parent: h.parent,
+                marks: h.marks,
+            }
+        })
+        .collect();
+    Ok(Found { path, hits, truncated })
+}
+
 /// The disk part of a hover path: up to and including the first archive (`…\Pack.rar!a/b.stl`
 /// gives `…\Pack.rar`). A `!` that doesn't follow an archive name is part of a folder name.
 pub fn disk_part(real: &str) -> &str {
@@ -614,5 +689,90 @@ mod tests {
         assert_eq!(v["items"][1]["openable"], false);
         let view: View = serde_json::from_str("\"models\"").unwrap();
         assert_eq!(view, View::Models);
+    }
+    fn find(state: &AppState, view: View, path: &[&str], q: &str, mode: SearchMode, cs: bool) -> Found {
+        crate::commands::search_impl(state, view, segs(path), q.into(), mode, cs).unwrap()
+    }
+
+    fn hit_names(f: &Found) -> Vec<&str> {
+        f.hits.iter().map(|h| h.name.as_str()).collect()
+    }
+
+    #[test]
+    fn search_scope_excludes_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let f = find(&state, View::Files, &["vol", "coll"], "o", SearchMode::Word, false);
+        assert_eq!(hit_names(&f), ["orc", "orc.jpg", "orc.stl"]); // notes.txt is hidden in Files
+        assert_eq!(f.path, ["vol", "coll"]);
+    }
+
+    #[test]
+    fn files_view_hides_other_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        assert!(find(&state, View::Files, &[], "notes", SearchMode::Word, false).hits.is_empty());
+        assert_eq!(find(&state, View::Models, &[], "notes", SearchMode::Word, false).hits.len(), 1);
+    }
+
+    #[test]
+    fn models_view_ignores_case_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        assert!(hit_names(&find(&state, View::Models, &[], "ORC", SearchMode::Word, true)).contains(&"orc"));
+    }
+
+    #[test]
+    fn files_view_case_sensitive_uses_disk_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        assert_eq!(hit_names(&find(&state, View::Files, &[], "Orc", SearchMode::Word, true)), ["orc"]);
+        assert!(find(&state, View::Files, &[], "ORC", SearchMode::Word, true).hits.is_empty());
+    }
+
+    #[test]
+    fn parent_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let f = find(&state, View::Models, &[], "o", SearchMode::Free, false);
+        assert!(!f.hits.is_empty());
+        for h in &f.hits {
+            let l = list_folder_impl(&state, View::Models, h.parent.clone()).unwrap();
+            assert!(l.items.iter().any(|i| i.name == h.name), "{} not in {:?}", h.name, h.parent);
+        }
+    }
+
+    #[test]
+    fn vanished_scope_falls_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let f = find(&state, View::Files, &["vol", "gone"], "orc", SearchMode::Word, false);
+        assert_eq!(f.path, ["vol"]);
+        assert!(!f.hits.is_empty());
+    }
+
+    #[test]
+    fn bad_regexp_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        assert!(crate::commands::search_impl(&state, View::Files, vec![], "(".into(), SearchMode::Regexp, false).is_err());
+    }
+
+    #[test]
+    fn empty_query_finds_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        assert!(find(&state, View::Files, &[], "", SearchMode::Free, false).hits.is_empty());
+    }
+
+    #[test]
+    fn search_serializes_camel_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let v = serde_json::to_value(find(&state, View::Files, &[], "orc.stl", SearchMode::Word, false)).unwrap();
+        assert_eq!(v["hits"][0]["fileKind"], "model");
+        assert_eq!(v["hits"][0]["parent"], serde_json::json!(["vol", "coll", "orc"]));
+        assert_eq!(v["hits"][0]["marks"], serde_json::json!([[0, 7]]));
+        assert_eq!(serde_json::from_str::<SearchMode>("\"regexp\"").unwrap(), SearchMode::Regexp);
     }
 }
