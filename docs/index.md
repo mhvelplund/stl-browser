@@ -33,7 +33,7 @@ anything out to Explorer to extract it.
 | 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | done                                          |
 | 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | done                                          |
 | 6.5. Usability pass: stop buttons, folder rescans, view-switch place, open files, STL pictures | done (branch `usability-pass`)              |
-| 7. Search: name search with Free/Word/Regexp, scoped to the open folder                      | done (branch `m7-search`)                     |
+| 7. Search: name search with Free/Word/Regexp, scoped to the open folder                      | built (branch `m7-search`), manual check due  |
 | 8. Tags and filters                                                                          | later (only the database tables exist so far) |
 
 Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and

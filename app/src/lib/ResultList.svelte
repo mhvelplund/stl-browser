@@ -2,7 +2,7 @@
   import type { Hit } from "./api";
   import { press, shouldStart, type Press } from "./dragstart";
   import KindIcon from "./KindIcon.svelte";
-  import { runs, where } from "./search";
+  import { hitId, runs, where } from "./search";
 
   let {
     hits,
@@ -15,7 +15,7 @@
   }: {
     hits: Hit[];
     scope: string[];
-    /** The selected hit's key. */
+    /** The selected hit's `hitId`. */
     selected: string | null;
     onSelect: (h: Hit) => void;
     /** Double-click or Enter: a folder opens in the browser, a file in its Windows app. */
@@ -48,13 +48,13 @@
 </script>
 
 <ul class="list">
-  {#each hits as h (h.key + "|" + h.parent.join("/") + "|" + h.name)}
+  {#each hits as h (hitId(h))}
     <li>
       <button
         type="button"
         class="row"
-        class:selected={selected === h.key}
-        aria-pressed={selected === h.key}
+        class:selected={selected === hitId(h)}
+        aria-pressed={selected === hitId(h)}
         title={h.real.join("\n")}
         onclick={() => onSelect(h)}
         ondblclick={() => onOpen(h)}

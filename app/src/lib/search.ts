@@ -21,3 +21,6 @@ export function runs(name: string, marks: [number, number][]): { text: string; h
 export const where = (parent: string[], scope: string[]): string => parent.slice(scope.length).join(" › ");
 
 export const scopeLabel = (scope: string[]): string => (scope.length ? `in ${scope.join(" › ")}` : "in Library");
+
+/** A hit's identity: its place in the tree (keys repeat, e.g. a volume's empty key or a shared picture). */
+export const hitId = (h: { name: string; parent: string[] }): string => JSON.stringify([...h.parent, h.name]);

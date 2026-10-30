@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runs, scopeLabel, where } from "./search.ts";
+import { hitId, runs, scopeLabel, where } from "./search.ts";
 
 test("runs split a name at its marks", () => {
   assert.deepEqual(runs("orc boss", [[0, 1], [4, 6]]), [
@@ -21,4 +21,13 @@ test("where is the parent relative to the scope", () => {
 test("scope label", () => {
   assert.equal(scopeLabel([]), "in Library");
   assert.equal(scopeLabel(["vol", "coll"]), "in vol › coll");
+});
+
+test("hitId tells apart hits that share a key", () => {
+  const a = { name: "alpha", parent: [] as string[] };
+  const b = { name: "beta", parent: [] as string[] };
+  assert.notEqual(hitId(a), hitId(b));
+  // a name may contain "/", so the segments must stay apart
+  assert.notEqual(hitId({ name: "b", parent: ["a/x"] }), hitId({ name: "x/b", parent: ["a"] }));
+  assert.equal(hitId({ name: "x.jpg", parent: ["m", "images"] }), hitId({ name: "x.jpg", parent: ["m", "images"] }));
 });

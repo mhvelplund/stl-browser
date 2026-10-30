@@ -10,6 +10,7 @@
   import { requests, slotKey, slots } from "#lib/carousel.ts";
   import { idle, step, type Run, type RunEvent } from "#lib/indexrun.ts";
   import { folderSummary } from "#lib/items.ts";
+  import { hitId } from "#lib/search.ts";
   import { goBack, goTo, open, settle, start, up, type Nav } from "#lib/nav.ts";
   import ResultList from "#lib/ResultList.svelte";
   import SearchBar from "#lib/SearchBar.svelte";
@@ -139,7 +140,8 @@
         found = f;
         scope = f.path;
         searchError = "";
-        if (selectedHit && !f.hits.some((h) => h.key === selectedHit?.key)) selectedHit = null;
+        const was = selectedHit && hitId(selectedHit);
+        selectedHit = f.hits.find((h) => hitId(h) === was) ?? null;
       } catch (e) {
         if (my !== searchSeq) return;
         searchError = String(e);
@@ -152,6 +154,11 @@
     // re-run on any change to the query or its toggles
     void [query, mode, caseSensitive];
     if (searching) runSearch();
+  });
+
+  // the results replace the grid: bring it back where it was scrolled to
+  $effect(() => {
+    if (showingResults) restore = scroll;
   });
 
   /** A folder hit opens in the browser (closing search); a file hit in its Windows app. */
@@ -424,7 +431,7 @@
         <ResultList
           hits={found.hits}
           {scope}
-          selected={selectedHit?.key ?? null}
+          selected={selectedHit ? hitId(selectedHit) : null}
           onSelect={selectHit}
           onOpen={openHit}
           onDragOut={dragHit}
