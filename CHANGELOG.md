@@ -1,3 +1,22 @@
+## v0.5.0 (2026-10-31)
+
+### Feat
+
+- tag side panel
+- tag dots and pill popover on tiles
+- tag commands and tag search in the app backend
+- tag terms in tree search
+- schema v6 tag tables and tag store
+- generated tags from support, scale, creator and edition
+- tag model and tag query parsing
+
+### Fix
+
+- tag panel points a shared folder to its owner
+- subfolders that share their parent's folder follow its tags
+- a user-set tag masks the generated tag of its kind inherited from above
+- copy_tags ignores untagged structural folders
+
 ## v0.4.0 (2026-10-31)
 
 ### Feat
