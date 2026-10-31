@@ -2,6 +2,7 @@
 //! Port of `prototype/stlindex/vtree.py`, with the lowercase naming rules.
 use std::collections::{BTreeSet, HashMap};
 
+use super::tags::{Tag, TagKind, exclusive, normalize, variant_tags};
 use super::{NodeId, NodeKind, Tree, common_real, parent_real};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +23,8 @@ pub struct GroupRow {
     pub path: String,
     pub poster_asset_id: Option<i64>,
     pub posters: u32,
+    pub designer: Option<String>,
+    pub edition: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +41,7 @@ pub struct ModelRow {
     pub file_count: u32,
     pub image_count: u32,
     pub variants: Vec<String>,
+    pub designer: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +87,22 @@ pub struct ModelsInput {
     pub files: Vec<FileRow>,
     pub assets: Vec<AssetRow>,
     pub locked: Vec<LockedRow>,
+}
+
+/// Creator and edition tags from the raw designer and edition values.
+fn credit_tags(designer: Option<&str>, edition: Option<&str>) -> Vec<Tag> {
+    let mk = |kind, v: Option<&str>| v.and_then(normalize).map(|name| Tag { kind, name, by_user: false });
+    [mk(TagKind::Creator, designer), mk(TagKind::Edition, edition)].into_iter().flatten().collect()
+}
+
+/// The support and scale tags every variant label has.
+fn common_variant_tags(variants: &[String]) -> Vec<Tag> {
+    let mut labels: Vec<&str> = variants.iter().map(String::as_str).collect();
+    labels.sort();
+    labels.dedup();
+    let sets: Vec<Vec<Tag>> = labels.iter().map(|l| variant_tags(l)).collect();
+    let Some((first, rest)) = sets.split_first() else { return Vec::new() };
+    first.iter().filter(|t| rest.iter().all(|s| s.contains(t))).cloned().collect()
 }
 
 const DOC_KINDS: [&str; 2] = ["doc", "meta"];
@@ -146,6 +166,7 @@ pub fn build_models(input: &ModelsInput, with_files: bool) -> Tree {
         gnode.insert(g.id, id);
         let info = &mut b.t.nodes[id].info;
         (info.group_id, info.poster_asset_id, info.posters) = (Some(g.id), g.poster_asset_id, g.posters);
+        info.tags = exclusive(credit_tags(g.designer.as_deref(), g.edition.as_deref()));
     }
     // parents may come after their children in id order; groups whose parent never appears are skipped
     let mut pending: Vec<&GroupRow> = input.groups.iter().filter(|g| g.parent_id.is_some()).collect();
@@ -157,6 +178,7 @@ pub fn build_models(input: &ModelsInput, with_files: bool) -> Tree {
             let n = &mut b.t.nodes[id];
             n.key = format!("m:{}/{}", g.collection, g.path);
             (n.info.group_id, n.info.poster_asset_id, n.info.posters) = (Some(g.id), g.poster_asset_id, g.posters);
+            n.info.tags = exclusive(credit_tags(g.designer.as_deref(), g.edition.as_deref()));
             gnode.insert(g.id, id);
             false
         });
@@ -201,6 +223,9 @@ pub fn build_models(input: &ModelsInput, with_files: bool) -> Tree {
         i.hero_asset_id = m.hero_asset_id;
         (i.file_count, i.image_count) = (m.file_count, m.image_count);
         i.variants = m.variants.clone();
+        let mut tags = credit_tags(m.designer.as_deref(), m.edition.as_deref());
+        tags.extend(common_variant_tags(&m.variants));
+        i.tags = exclusive(tags);
         if with_files {
             fill_model(&mut b, id, &mf, &ma);
         }
@@ -262,6 +287,7 @@ fn fill_model(b: &mut Builder, node: NodeId, files: &[&FileRow], assets: &[&Asse
         if split {
             parent = b.folder(node, &variant_folder(&f.variant), NodeKind::Variant);
             b.t.nodes[parent].key = format!("{mkey}#{}", f.variant);
+            b.t.nodes[parent].info.tags = exclusive(variant_tags(&f.variant));
         }
         for part in f.part_group.split('/').filter(|p| !p.is_empty()) {
             let pkey = b.t.nodes[parent].key.clone();
@@ -270,6 +296,7 @@ fn fill_model(b: &mut Builder, node: NodeId, files: &[&FileRow], assets: &[&Asse
         }
         let id = leaf(b, parent, &f.name, NodeKind::File, &f.real, &f.key);
         (b.t.nodes[id].info.entry_id, b.t.nodes[id].info.file_kind) = (Some(f.entry_id), Some(f.kind.clone()));
+        b.t.nodes[id].info.tags = exclusive(variant_tags(&f.variant));
     }
 }
 

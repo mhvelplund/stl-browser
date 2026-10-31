@@ -14,6 +14,8 @@
     onRescan,
     searching,
     onSearch,
+    tagsOpen,
+    onTags,
   }: {
     nav: Nav;
     view: View;
@@ -26,6 +28,8 @@
     onRescan: () => void;
     searching: boolean;
     onSearch: () => void;
+    tagsOpen: boolean;
+    onTags: () => void;
   } = $props();
 
   const trail = $derived(crumbs(nav.path));
@@ -76,6 +80,19 @@
     </button>
     <button type="button" class="btn icon" class:on={searching} aria-label="Search" aria-pressed={searching} title="Search in this folder" onclick={onSearch}>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.8" /><path d="M10.5 10.5 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+    </button>
+    <button
+      type="button"
+      class="btn icon"
+      class:on={tagsOpen}
+      aria-label={tagsOpen ? "Hide tags" : "Show tags"}
+      aria-pressed={tagsOpen}
+      title={tagsOpen ? "Hide tags" : "Show tags"}
+      onclick={onTags}
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+        <path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6z" /><circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
+      </svg>
     </button>
     <button
       type="button"

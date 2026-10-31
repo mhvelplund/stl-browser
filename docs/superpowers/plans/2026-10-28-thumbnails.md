@@ -576,7 +576,7 @@ test("requests: visible chosen slots are high, the rest low", () => {
 - [ ] **Step 4: Run** `npm --prefix app test` and `npm --prefix app run check` → pass, 0 errors.
 - [ ] **Step 5: Smoke-run** `tauri dev` (scratch `STL_BROWSER_HOME`, CDP as in milestone 4) on Vol.1 + Vol.2:
   - A collection fills in thumbnails.
-  - Vol.2 Necrons STC (no images) shows STL renders.
+  - Vol.2 Tinmen STC (no images) shows STL renders.
   - Cycling a carousel and restarting the app keeps the slot.
   - Deleting `thumbs/` regenerates.
   - The status bar shows the queue draining.

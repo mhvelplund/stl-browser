@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use stl_core::vtree::filter::Shown;
-use stl_core::vtree::search::{Field, Matcher, Mode, search as vtree_search};
+use stl_core::vtree::search::{Field, Inherited, Matcher, Mode, TagFilter, search as vtree_search};
+use stl_core::vtree::tags::{Tag, UserTags, copy_tags, link_tags, parse_query};
 use stl_core::vtree::{Counts, Node, NodeId, NodeKind, Tree, counts, is_file_kind};
 use stl_thumb::{ThumbKind, thumb_kind};
 use stl_index::scanstore::IndexError;
@@ -35,6 +36,8 @@ impl ViewTree {
 pub struct Views {
     pub models: ViewTree,
     pub files: ViewTree,
+    /// Every generated tag in the Models tree (distinct, sorted).
+    pub generated: Vec<Tag>,
 }
 
 impl Views {
@@ -47,7 +50,13 @@ impl Views {
 }
 
 pub fn build_views(conn: &Connection) -> Result<Views, IndexError> {
-    Ok(Views { models: ViewTree::new(models_view(conn)?), files: ViewTree::new(files_view(conn)?) })
+    let mut models = models_view(conn)?;
+    let mut files = files_view(conn)?;
+    copy_tags(&models, &mut files);
+    link_tags(&mut models);
+    link_tags(&mut files);
+    let generated = generated_tags(&models);
+    Ok(Views { models: ViewTree::new(models), files: ViewTree::new(files), generated })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -71,6 +80,142 @@ pub struct Item {
     pub pics: Vec<Thumb>,
     /// The chosen slot in `[composite?] ++ pics`.
     pub slot: usize,
+    /// The item's own effective tags (inherited ones count in search only).
+    pub tags: Vec<TagView>,
+}
+
+/// A tag as the UI sees it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TagView {
+    pub kind: String,
+    pub name: String,
+    pub by_user: bool,
+}
+
+impl From<&Tag> for TagView {
+    fn from(t: &Tag) -> Self {
+        TagView { kind: t.kind.as_str().to_string(), name: t.name.clone(), by_user: t.by_user }
+    }
+}
+
+/// A tag a node gets from the folder `from` (path segments).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InheritedTag {
+    pub tag: TagView,
+    pub from: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeTags {
+    pub own: Vec<TagView>,
+    pub inherited: Vec<InheritedTag>,
+    /// Generated tags the user hid on this node.
+    pub hidden: Vec<TagView>,
+    /// For a node that shares its folder with the node above, the one to tag instead.
+    pub owner: Option<Owner>,
+}
+
+/// A node by its name and the path of the folder that lists it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Owner {
+    pub name: String,
+    pub path: Vec<String>,
+}
+
+fn tag_views(tags: &[Tag]) -> Vec<TagView> {
+    tags.iter().map(TagView::from).collect()
+}
+
+/// The node at `(path, name)`; `name == ""` is the folder at `path` itself. `ancestors` are the
+/// nodes above it from the root, each with the path segments that lead to it.
+pub struct Located {
+    pub id: NodeId,
+    pub ancestors: Vec<(NodeId, Vec<String>)>,
+}
+
+pub fn locate_node(views: &Views, view: View, path: &[String], name: &str) -> Result<Located, String> {
+    let t = &views.get(view).tree;
+    let gone = || format!("{} no longer exists", if name.is_empty() { path.last().map_or("the library", String::as_str) } else { name });
+    let mut chain = vec![(0, Vec::new())];
+    for (i, part) in path.iter().enumerate() {
+        let part = part.to_lowercase();
+        let cur = chain[i].0;
+        match t.nodes[cur].children.iter().find(|&&c| t.nodes[c].name == part && !is_file_kind(t.nodes[c].kind)) {
+            Some(&c) => chain.push((c, path[..=i].to_vec())),
+            None => return Err(gone()),
+        }
+    }
+    if name.is_empty() {
+        let (id, _) = chain.pop().expect("chain has the root");
+        return Ok(Located { id, ancestors: chain });
+    }
+    let name = name.to_lowercase();
+    let id = t.nodes[chain[chain.len() - 1].0]
+        .children
+        .iter()
+        .copied()
+        .find(|&c| t.nodes[c].name == name)
+        .ok_or_else(gone)?;
+    Ok(Located { id, ancestors: chain })
+}
+
+/// A node's own, inherited and hidden tags.
+pub fn node_tags(views: &Views, view: View, path: &[String], name: &str, user: &UserTags) -> Result<NodeTags, String> {
+    let t = &views.get(view).tree;
+    let at = locate_node(views, view, path, name)?;
+    let mut inherited = Vec::new();
+    for (id, from) in &at.ancestors {
+        for tag in user.effective(&t.nodes[*id]) {
+            inherited.push(InheritedTag { tag: TagView::from(&tag), from: from.clone() });
+        }
+    }
+    Ok(NodeTags {
+        own: tag_views(&user.effective(&t.nodes[at.id])),
+        inherited,
+        hidden: tag_views(&user.hidden_of(&t.nodes[at.id])),
+        owner: t.nodes[at.id].info.tag_owner.map(|o| owner(t, &at, o)),
+    })
+}
+
+/// The owner `o` of the located node: found among its ancestors (the path the user came by),
+/// else along the first path from the root.
+fn owner(t: &Tree, at: &Located, o: NodeId) -> Owner {
+    let path = match at.ancestors.iter().find(|(id, _)| *id == o) {
+        Some((_, from)) => from[..from.len() - 1].to_vec(),
+        None => path_to(t, o).unwrap_or_default(),
+    };
+    Owner { name: t.nodes[o].name.clone(), path }
+}
+
+/// The segments of the folder that lists `target`, on the first path from the root.
+fn path_to(t: &Tree, target: NodeId) -> Option<Vec<String>> {
+    fn go(t: &Tree, id: NodeId, target: NodeId, path: &mut Vec<String>) -> bool {
+        for &c in &t.nodes[id].children {
+            if c == target {
+                return true;
+            }
+            path.push(t.nodes[c].name.clone());
+            if go(t, c, target, path) {
+                return true;
+            }
+            path.pop();
+        }
+        false
+    }
+    let mut path = Vec::new();
+    go(t, 0, target, &mut path).then_some(path)
+}
+
+/// Every generated tag in a tree (distinct, `by_user` false).
+fn generated_tags(t: &Tree) -> Vec<Tag> {
+    let mut all: Vec<Tag> = t.nodes.iter().flat_map(|n| n.info.tags.iter().cloned()).collect();
+    all.sort();
+    all.dedup();
+    all
 }
 
 /// A file that has (or will get) a thumbnail.
@@ -272,7 +417,7 @@ fn carousel(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> (Vec<Th
 }
 
 /// The tile for node `c`, with its carousel.
-fn item(vt: &ViewTree, c: NodeId, shown: &Shown, selected: &HashMap<String, String>) -> Item {
+fn item(vt: &ViewTree, c: NodeId, shown: &Shown, selected: &HashMap<String, String>, user: &UserTags) -> Item {
     let t = &vt.tree;
     let n = &t.nodes[c];
     let k = vt.counts[c];
@@ -292,12 +437,20 @@ fn item(vt: &ViewTree, c: NodeId, shown: &Shown, selected: &HashMap<String, Stri
         composite,
         pics,
         slot,
+        tags: tag_views(&user.effective(n)),
     }
 }
 
 /// List the deepest folder along `path` that exists. `selected` maps node keys to their saved
 /// carousel choice (an image key or `composite`).
-pub fn list(views: &Views, view: View, path: &[String], selected: &HashMap<String, String>, shown: &Shown) -> Listing {
+pub fn list(
+    views: &Views,
+    view: View,
+    path: &[String],
+    selected: &HashMap<String, String>,
+    user: &UserTags,
+    shown: &Shown,
+) -> Listing {
     let vt = views.get(view);
     let t = &vt.tree;
     let (id, used) = t.walk(path);
@@ -305,7 +458,7 @@ pub fn list(views: &Views, view: View, path: &[String], selected: &HashMap<Strin
         .children
         .iter()
         .filter(|&&c| visible(shown, &t.nodes[c]))
-        .map(|&c| item(vt, c, shown, selected))
+        .map(|&c| item(vt, c, shown, selected, user))
         .collect();
     let (n, k) = (&t.nodes[id], vt.counts[id]);
     Listing {
@@ -367,14 +520,22 @@ pub fn search(
     path: &[String],
     q: &Query,
     selected: &HashMap<String, String>,
+    user: &UserTags,
     shown: &Shown,
 ) -> Result<Found, String> {
-    let (query, mode, case_sensitive) = (q.text, q.mode, q.case_sensitive);
+    let (mode, case_sensitive) = (q.mode, q.case_sensitive);
     let vt = views.get(view);
     let t = &vt.tree;
     let (id, used) = t.walk(path);
     let path = path[..used].to_vec();
-    if query.is_empty() {
+    // `tag:` terms are split off; a query without any keeps its text exactly
+    let parsed = parse_query(q.text);
+    let text = if parsed.tags.is_empty() && parsed.text.split_whitespace().eq(q.text.split_whitespace()) {
+        q.text
+    } else {
+        parsed.text.as_str()
+    };
+    if text.is_empty() && parsed.tags.is_empty() {
         return Ok(Found { path, hits: Vec::new(), truncated: false });
     }
     let mode = match mode {
@@ -386,11 +547,13 @@ pub fn search(
         View::Files => (Field::Label, case_sensitive),
         View::Models => (Field::Name, false),
     };
-    let m = Matcher::new(query, mode, case_sensitive)?;
-    let (found, truncated) = vtree_search(t, id, &path, &m, field, &|n| visible(shown, n), SEARCH_LIMIT);
+    let m = if text.is_empty() { None } else { Some(Matcher::new(text, mode, case_sensitive)?) };
+    let own = |id: NodeId| user.effective(&t.nodes[id]);
+    let filter = TagFilter { terms: &parsed.tags, own: &own, start: Inherited::along(t, &path, &own) };
+    let (found, truncated) = vtree_search(t, id, &path, m.as_ref(), field, &|n| visible(shown, n), &filter, SEARCH_LIMIT);
     let hits = found
         .into_iter()
-        .map(|h| Hit { item: item(vt, h.id, shown, selected), parent: h.parent, marks: h.marks })
+        .map(|h| Hit { item: item(vt, h.id, shown, selected, user), parent: h.parent, marks: h.marks })
         .collect();
     Ok(Found { path, hits, truncated })
 }
@@ -702,6 +865,7 @@ mod tests {
         assert_eq!(v["items"][2]["name"], "orc.stl");
         assert_eq!(v["items"][2]["fileKind"], "model");
         assert_eq!(v["items"][2]["openable"], false);
+        assert!(v["items"][2]["tags"].is_array());
         let view: View = serde_json::from_str("\"models\"").unwrap();
         assert_eq!(view, View::Models);
     }
@@ -800,6 +964,120 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
         assert!(find(&state, View::Files, &[], "", SearchMode::Free, false).hits.is_empty());
+    }
+
+    fn tv(kind: &str, name: &str) -> TagView {
+        TagView { kind: kind.into(), name: name.into(), by_user: true }
+    }
+
+    fn tags_of(state: &AppState, view: View, path: &[&str], name: &str) -> Vec<TagView> {
+        item(&list_folder_impl(state, view, segs(path)).unwrap(), name).tags.clone()
+    }
+
+    fn tag(state: &AppState, view: View, path: &[&str], name: &str, kind: &str, tag: &str) {
+        crate::commands::add_tag_impl(state, view, segs(path), name.into(), kind.into(), tag.into()).unwrap();
+    }
+
+    #[test]
+    fn tag_shows_in_both_views() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Tinmen");
+        assert_eq!(tags_of(&state, View::Models, &["vol", "coll"], "orc"), [tv("user", "tinmen")]);
+        assert_eq!(tags_of(&state, View::Files, &["vol", "coll"], "orc"), [tv("user", "tinmen")]);
+        assert!(tags_of(&state, View::Files, &["vol", "coll"], "elf").is_empty());
+    }
+
+    #[test]
+    fn remove_clears_every_real_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Tinmen");
+        crate::commands::remove_tag_impl(&state, View::Models, segs(&["vol", "coll"]), "orc".into(), "user".into(), "tinmen".into())
+            .unwrap();
+        assert!(tags_of(&state, View::Models, &["vol", "coll"], "orc").is_empty());
+        assert!(tags_of(&state, View::Files, &["vol", "coll"], "orc").is_empty());
+    }
+
+    #[test]
+    fn tag_search_topmost_and_inside() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Tinmen");
+        let run = |q: &str| find(&state, View::Models, &[], q, SearchMode::Word, false);
+        assert_eq!(hit_names(&run("tag:tinmen")), ["orc"]);
+        assert_eq!(hit_names(&run("tag:tinmen orc.stl")), ["orc.stl"]);
+        assert!(run("tag:tinmen elf").hits.is_empty());
+        assert!(run("tag:").hits.is_empty());
+    }
+
+    #[test]
+    fn node_tags_lists_inherited() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Tinmen");
+        let n = crate::commands::node_tags_impl(&state, View::Files, segs(&["vol", "coll", "orc"]), "orc.stl".into()).unwrap();
+        assert!(n.own.is_empty());
+        assert_eq!(n.inherited, [InheritedTag { tag: tv("user", "tinmen"), from: segs(&["vol", "coll", "orc"]) }]);
+        // the folder itself: its own tag is own, nothing is inherited
+        let n = crate::commands::node_tags_impl(&state, View::Files, segs(&["vol", "coll", "orc"]), String::new()).unwrap();
+        assert_eq!(n.own, [tv("user", "tinmen")]);
+        assert!(n.inherited.is_empty());
+    }
+
+    #[test]
+    fn setting_a_scale_replaces_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        tag(&state, View::Models, &["vol", "coll"], "orc", "scale", "25mm");
+        tag(&state, View::Models, &["vol", "coll"], "orc", "scale", "32mm");
+        assert_eq!(tags_of(&state, View::Models, &["vol", "coll"], "orc"), [tv("scale", "32mm")]);
+        let all = crate::commands::all_tags_impl(&state).unwrap();
+        assert!(all.contains(&tv("scale", "32mm")));
+        assert!(!all.contains(&tv("scale", "25mm")));
+    }
+
+    #[test]
+    fn tag_writes_check_the_node() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let add = |path: &[&str], name: &str, kind: &str| {
+            crate::commands::add_tag_impl(&state, View::Models, segs(path), name.into(), kind.into(), "x".into())
+        };
+        assert!(add(&["vol", "coll"], "gone", "user").unwrap_err().contains("no longer exists"));
+        assert!(add(&[], "", "user").unwrap_err().contains("can't be tagged"));
+        assert!(add(&["vol", "coll"], "orc", "edition").is_err());
+        assert!(add(&["vol", "coll"], "orc", "bogus").is_err());
+    }
+
+    #[test]
+    fn shadowed_folders_name_their_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        // with a second picture `images` gets the model's folder as its own
+        std::fs::write(dir.path().join("lib/Vol/Coll/Orc/orc2.png"), crate::testutil::TINY_PNG).unwrap();
+        let (done, views) = crate::indexer::run_index(&state.db_path(), None, &Default::default(), &mut |_| {});
+        assert!(done.ok, "{:?}", done.error);
+        state.set_views(views.unwrap());
+        let orc = segs(&["vol", "coll", "orc"]);
+        // `images` shares the model's folder: the model's tag shows only on the model
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Tinmen");
+        assert_eq!(tags_of(&state, View::Models, &["vol", "coll"], "orc"), [tv("user", "tinmen")]);
+        assert!(tags_of(&state, View::Models, &["vol", "coll", "orc"], "images").is_empty());
+        let refused = "images shares its folder with orc; tag orc instead";
+        let add = crate::commands::add_tag_impl(&state, View::Models, orc.clone(), "images".into(), "user".into(), "x".into());
+        assert_eq!(add.unwrap_err(), refused);
+        let hide = crate::commands::hide_tag_impl(&state, View::Models, orc.clone(), "images".into(), "support".into(), "x".into());
+        assert_eq!(hide.unwrap_err(), refused);
+        let n = crate::commands::node_tags_impl(&state, View::Models, orc.clone(), "images".into()).unwrap();
+        assert_eq!(n.owner, Some(Owner { name: "orc".into(), path: segs(&["vol", "coll"]) }));
+        assert!(n.own.is_empty());
+        assert_eq!(n.inherited, [InheritedTag { tag: tv("user", "tinmen"), from: orc.clone() }]);
+        let v = serde_json::to_value(&n).unwrap();
+        assert_eq!(v["owner"], serde_json::json!({ "name": "orc", "path": ["vol", "coll"] }));
+        // the owner itself has none
+        let n = crate::commands::node_tags_impl(&state, View::Models, segs(&["vol", "coll"]), "orc".into()).unwrap();
+        assert_eq!(n.owner, None);
     }
 
     #[test]

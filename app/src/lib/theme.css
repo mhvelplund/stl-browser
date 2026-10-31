@@ -22,6 +22,16 @@
   --chip-text: #c9ced4;
   --warn: #e8b86a;
   --error: #e8a0a0;
+  --tag-user: #3fb97a;
+  --tag-user-text: #06210f;
+  --tag-support: #e6b422;
+  --tag-support-text: #2a2000;
+  --tag-scale: #5b9cf0;
+  --tag-scale-text: #06142b;
+  --tag-creator: #ee6b63;
+  --tag-creator-text: #2b0603;
+  --tag-edition: #b088f0;
+  --tag-edition-text: #1c0836;
   --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
 }
@@ -51,6 +61,16 @@
     --chip-text: #3a4048;
     --warn: #9a5b00;
     --error: #b42318;
+    --tag-user: #1a7f4b;
+    --tag-user-text: #ffffff;
+    --tag-support: #f0b90b;
+    --tag-support-text: #2a2000;
+    --tag-scale: #2563c9;
+    --tag-scale-text: #ffffff;
+    --tag-creator: #c62f2f;
+    --tag-creator-text: #ffffff;
+    --tag-edition: #7c3fcf;
+    --tag-edition-text: #ffffff;
   }
 }
 

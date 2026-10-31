@@ -150,7 +150,7 @@ Double-click opens. Status bar: index stats and the thumbnail queue length. Ligh
   Primarchs, TYRANIDS poster…).
 - **Rescan:** rename one archive and delete another in a scratch copy, rescan, and check that the stale entries are
   gone and the renamed one is re-indexed.
-- **Manual in the app** (`cargo tauri dev`): open Vol.2 Necrons STC (no images) and check STL thumbnails appear. Cycle
+- **Manual in the app** (`cargo tauri dev`): open Vol.2 Tinmen STC (no images) and check STL thumbnails appear. Cycle
   a carousel, restart, and the selection persists. Delete the cache folder and thumbnails regenerate. Drag a model
   folder to Explorer and the tree on disk matches the view, including a file from a nested archive. Extract to… gives
   the same result.

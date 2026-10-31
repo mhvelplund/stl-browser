@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
-use stl_index::scanstore;
+use stl_core::vtree::tags::{TagKind, UserTags, check_writable};
+use stl_index::{scanstore, tagstore};
 
-use crate::browse::{self, Found, Listing, SearchMode, View};
+use crate::browse::{self, Found, Listing, NodeTags, SearchMode, TagView, View};
 use crate::indexer::{self, BUSY};
 use crate::state::{AppState, IndexGuard};
 use crate::thumbs::ThumbReady;
@@ -40,7 +41,14 @@ pub fn app_info(state: tauri::State<'_, AppState>) -> Result<AppInfo, String> {
 pub fn list_folder_impl(state: &AppState, view: View, path: Vec<String>) -> Result<Listing, String> {
     let views = state.views()?;
     let selected = selected_thumbs(state)?;
-    Ok(browse::list(&views, view, &path, &selected, &state.shown))
+    let user = user_tags(state)?;
+    Ok(browse::list(&views, view, &path, &selected, &user, &state.shown))
+}
+
+/// Every user-set and hidden tag.
+fn user_tags(state: &AppState) -> Result<UserTags, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    tagstore::load(&conn).map_err(|e| e.to_string())
 }
 
 /// Every saved carousel choice: node key → image key (`composite` or an `f:` entry key).
@@ -115,8 +123,9 @@ pub fn search_impl(
 ) -> Result<Found, String> {
     let views = state.views()?;
     let selected = selected_thumbs(state)?;
+    let user = user_tags(state)?;
     let q = browse::Query { text: &query, mode, case_sensitive };
-    browse::search(&views, view, &path, &q, &selected, &state.shown)
+    browse::search(&views, view, &path, &q, &selected, &user, &state.shown)
 }
 
 /// The folders and files below `path` whose names match `query` (at most `SEARCH_LIMIT`).
@@ -130,6 +139,101 @@ pub fn search(
     case_sensitive: bool,
 ) -> Result<Found, String> {
     search_impl(&state, view, path, query, mode, case_sensitive)
+}
+
+pub fn node_tags_impl(state: &AppState, view: View, path: Vec<String>, name: String) -> Result<NodeTags, String> {
+    let views = state.views()?;
+    let user = user_tags(state)?;
+    browse::node_tags(&views, view, &path, &name, &user)
+}
+
+/// A node's own, inherited (from its folders) and hidden tags.
+#[tauri::command(async)]
+pub fn node_tags(state: tauri::State<'_, AppState>, view: View, path: Vec<String>, name: String) -> Result<NodeTags, String> {
+    node_tags_impl(&state, view, path, name)
+}
+
+/// The tag keys of the node at `(path, name)` (one per real path), and the parsed kind. A node
+/// that shares its folder with its owner is refused.
+fn tag_target(state: &AppState, view: View, path: &[String], name: &str, kind: &str) -> Result<(Vec<String>, TagKind), String> {
+    let views = state.views()?;
+    let at = browse::locate_node(&views, view, path, name)?;
+    let t = &views.get(view).tree;
+    let keys = t.nodes[at.id].info.tag_keys.clone();
+    if keys.is_empty() {
+        let shown = if name.is_empty() { path.last().map_or("the library", String::as_str) } else { name };
+        return Err(format!("{shown} can't be tagged"));
+    }
+    check_writable(t, at.id)?;
+    let kind = TagKind::parse(kind).ok_or_else(|| format!("unknown tag kind {kind}"))?;
+    Ok((keys, kind))
+}
+
+type Write = fn(&rusqlite::Connection, &[String], TagKind, &str) -> Result<(), stl_index::scanstore::IndexError>;
+
+fn write_tag(state: &AppState, view: View, path: Vec<String>, name: String, kind: String, tag: String, write: Write) -> Result<(), String> {
+    let (keys, kind) = tag_target(state, view, &path, &name, &kind)?;
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    write(&conn, &keys, kind, &tag).map_err(|e| e.to_string())
+}
+
+pub fn add_tag_impl(state: &AppState, view: View, path: Vec<String>, name: String, kind: String, tag: String) -> Result<(), String> {
+    write_tag(state, view, path, name, kind, tag, tagstore::add)
+}
+
+pub fn remove_tag_impl(state: &AppState, view: View, path: Vec<String>, name: String, kind: String, tag: String) -> Result<(), String> {
+    write_tag(state, view, path, name, kind, tag, tagstore::remove)
+}
+
+pub fn hide_tag_impl(state: &AppState, view: View, path: Vec<String>, name: String, kind: String, tag: String) -> Result<(), String> {
+    write_tag(state, view, path, name, kind, tag, tagstore::hide)
+}
+
+pub fn unhide_tag_impl(state: &AppState, view: View, path: Vec<String>, name: String, kind: String, tag: String) -> Result<(), String> {
+    write_tag(state, view, path, name, kind, tag, tagstore::unhide)
+}
+
+/// Tag a node with a user value (a scale, support or creator replaces the old one of its kind).
+#[tauri::command(async)]
+pub fn add_tag(state: tauri::State<'_, AppState>, view: View, path: Vec<String>, name: String, kind: String, tag: String) -> Result<(), String> {
+    add_tag_impl(&state, view, path, name, kind, tag)
+}
+
+#[tauri::command(async)]
+pub fn remove_tag(state: tauri::State<'_, AppState>, view: View, path: Vec<String>, name: String, kind: String, tag: String) -> Result<(), String> {
+    remove_tag_impl(&state, view, path, name, kind, tag)
+}
+
+/// Hide a generated tag on a node.
+#[tauri::command(async)]
+pub fn hide_tag(state: tauri::State<'_, AppState>, view: View, path: Vec<String>, name: String, kind: String, tag: String) -> Result<(), String> {
+    hide_tag_impl(&state, view, path, name, kind, tag)
+}
+
+#[tauri::command(async)]
+pub fn unhide_tag(state: tauri::State<'_, AppState>, view: View, path: Vec<String>, name: String, kind: String, tag: String) -> Result<(), String> {
+    unhide_tag_impl(&state, view, path, name, kind, tag)
+}
+
+/// The user-set tags in use plus every generated tag in the Models tree, sorted by (kind, name).
+pub fn all_tags_impl(state: &AppState) -> Result<Vec<TagView>, String> {
+    let views = state.views()?;
+    let mut all: Vec<stl_core::vtree::tags::Tag> = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        tagstore::names(&conn).map_err(|e| e.to_string())?
+    }
+    .into_iter()
+    .map(|(kind, name)| stl_core::vtree::tags::Tag { kind, name, by_user: true })
+    .collect();
+    all.extend(views.generated.iter().cloned());
+    all.sort();
+    all.dedup();
+    Ok(all.iter().map(TagView::from).collect())
+}
+
+#[tauri::command(async)]
+pub fn all_tags(state: tauri::State<'_, AppState>) -> Result<Vec<TagView>, String> {
+    all_tags_impl(&state)
 }
 
 #[derive(Debug, Serialize)]

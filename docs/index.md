@@ -32,10 +32,10 @@ anything out to Explorer to extract it.
 | 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                        | done                                          |
 | 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                                | done                                          |
 | 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                     | done                                          |
-| 6.5. Usability pass: stop buttons, folder rescans, view-switch place, open files, STL pictures | done (branch `usability-pass`)                |
+| 6.5. Usability pass: stop buttons, folder rescans, view-switch place, open files, STL pictures | done                                          |
 | 7. Search: name search with Free/Word/Regexp, scoped to the open folder                        | done                                          |
-| 7.5. Follow-ups: view toggle button, shown file endings (`config.yaml`), tile search results   | built (branch `m7-polish`), manual check due  |
-| 8. Tags and filters                                                                            | later (only the database tables exist so far) |
+| 7.5. Follow-ups: view toggle button, shown file endings (`config.yaml`), tile search results   | done                                          |
+| 8. Tags: user and generated tags, dots and pills on tiles, a side panel, `tag:` search         | done                                          |
 
 Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and 18,050
 files (1,243 of them in nested archives) with 0 errors, the same as the prototype. It takes about 35 s, and a rescan of
@@ -93,6 +93,24 @@ The usability pass (6.5) was checked in `tauri dev` on a scratch index of Vol.1,
 - **Not checked by script:** double-clicking a file to open it in its Windows app (it would launch apps on the desktop),
   and a real mouse's Back button.
 
+Milestone 8 was smoke-tested in `tauri dev` on a scratch index of Vol.1, driven over CDP (`invoke` for the commands, DOM
+and computed styles for the UI):
+
+- **Tag in Models, see it in Files:** the tag `tinmen` on a model folder showed as a green user tag in both views, and
+  `tag:tinmen` listed only that folder. `tag:tinmen body` listed the `body.stl` files inside it.
+- **`tag:supported`** listed supported variant folders. No model with both a supported and an unsupported variant was
+  among the hits. Hiding `supported` on one variant folder dropped that folder out of the search; restoring it brought
+  it back.
+- **`tag:unsupported body`** in a model with both kinds found only the 4 parts in `unsupported/`; plain `body` found 8.
+- **Setting scale `32mm`** on a model with variants `25mm`, `32mm` and `supported · 25mm`/`· 32mm` gave a `32mm` pill
+  with the user mark, and `tag:25mm` in that model went from 2 hits to 0 (variant folders and files, both views).
+- **Persistence:** the user tag, the user-set scale and the hide survived Rescan all and an app restart.
+- **Colours:** the dot and pill backgrounds and the pill text match the `--tag-*` tokens in both the dark and the light
+  scheme (set with emulated `prefers-color-scheme`); the popover opened on the dots shows both pills.
+- **Not checked by script:** a real mouse hover on the dots (the popover was opened with a dispatched `pointerenter`),
+  a visual look at the colours and their contrast, typing in the add field and its suggestion list, and the panel's
+  keyboard handling.
+
 ## Architecture
 
 ```text
@@ -147,13 +165,13 @@ Two smaller modules came with milestone 6:
 
 ### Data on disk: `~/.stl-browser/`
 
-- `index.db` (SQLite, WAL), at schema version 5:
+- `index.db` (SQLite, WAL), at schema version 6:
   - **Cached listings:** `roots` (the added folders), `sources` (each archive, or each folder of loose files), `entries`
     (every file found, with `chain`, the archive members to open in order to reach it).
   - **Resolved tables:** `groups`, `models`, `model_files`, `assets`. They are rebuilt per (root, collection) whenever
     one of that collection's sources changes. `resolved` marks the collections that are up to date.
-  - **User data, never rebuilt:** `settings`, `selected_thumb`, `tags`, `node_tags`. These are keyed by stable path
-    strings, never by row ids.
+  - **User data, never rebuilt:** `settings`, `selected_thumb`, `tags`, `node_tags`, `hidden_tags`. These are keyed by
+    stable path strings, never by row ids.
   - **Thumbnail bookkeeping:** `thumbs(entry_id, cache_rel, status, error)`.
     - A row goes with its entry (cascade), so a re-listed source drops its rows.
     - A row only counts while its file exists.
@@ -220,6 +238,34 @@ either view.
   and closes search, a file is shown selected in its folder. Esc closes the bar. Matching runs in Rust on the cached
   view tree (`stl_core::vtree::search`, `search` command), at most 1000 results.
 
+### Tags (milestone 8)
+
+Design: [`superpowers/specs/2026-10-31-tags-design.md`](superpowers/specs/2026-10-31-tags-design.md).
+
+- **Two families.** *User tags* are free-form labels (green). *Generated tags* come from the index and have a colour
+  per kind: support (yellow; supported, unsupported, lychee, chitubox), scale (blue; `25mm`…), creator (red; the
+  parser's designer handle) and edition (purple; `5e`).
+- **Stored in schema v6** (`MIGRATIONS` in `db.rs`; the unused v1 tables are dropped):
+  - `tags(kind, name)` and `node_tags(tag_key, tag_id)` hold user tags and user-set support, scale or creator values.
+  - `hidden_tags(tag_key, kind, name)` holds hidden generated tags.
+  - A `tags` row with no `node_tags` left is deleted. Names are trimmed, lowercased and space-collapsed.
+  - `tagstore.rs` reads and writes them. Rows for vanished paths are kept, like `selected_thumb`.
+- **Keys are real paths** (`r:` + the lowercased real path), so a tag shows in both views and survives adding an outer
+  root. A merged folder is tagged under each of its real paths. See "Tag keys (milestone 8)" in [`virtual-tree.md`].
+- **Generated tags** are built with the views (`views.rs` fills `Info.tags` on the nodes; Files folders copy the tags
+  their matching Models nodes have in common with `copy_tags`) and are not stored. `vtree/tags.rs` holds the kinds,
+  `effective` (generated − hidden − overridden kinds + user-set), query parsing and matching.
+- **Search:** `tag:name` and `tag:"two words"` terms must all hold. A name matches a tag of any kind, case-insensitively.
+  - A node passes when its own tags plus its ancestors' tags (from the tree root) cover every term.
+  - A search of only tag terms lists the topmost passing nodes. With a name term as well, the walk goes on below a
+    tagged folder.
+  - Search inside a folder that already has the tag returns its direct children. The scope folder is never a hit.
+- **Commands:** `node_tags`, `add_tag`, `remove_tag`, `hide_tag`, `unhide_tag`, `all_tags`. `Item.tags` carries a node's
+  own effective tags. User tags and hides are read per call, so an edit needs no tree rebuild.
+- **UI:** `TagDots.svelte` (dots in the lower-right of a tile's art and at the end of a result row; the pill popover on
+  hover), `TagPanel.svelte` (the toolbar's tag button, remembered in `localStorage`), `tags.ts` (dot order, grouping,
+  suggestions) and the `--tag-*` colour tokens in `theme.css`.
+
 ## Decisions
 
 ### Made by you
@@ -237,7 +283,8 @@ either view.
 - **Thumbnails are generated when a folder is first opened**, cached as `<hash of path>/<hash of file>`, and regenerated
   if missing. STL files get rendered thumbnails.
 - **Thumbnails are 256×256 JPEG files at quality 80** *(added after milestone 5, replacing the 128×128 WebP files)*.
-- **Tags, search and filtering come later.** User data lives in the SQLite DB in `~/.stl-browser/`.
+- **Tags and search.** User data lives in the SQLite DB in `~/.stl-browser/`. Search came in milestone 7 and tags in
+  milestone 8.
 - **Password-protected archives are not supported** *(added after milestone 2; the scanner side is done)*:
   - Don't try to scan them.
   - Show them as a single item with a **box-with-padlock** icon.
@@ -280,7 +327,54 @@ either view.
   - A Windows runner builds the exe and the NSIS installer and attaches them to a new GitHub release.
   - Internal path dependencies no longer pin a `version`, so a bump doesn't break them.
 
+- **Tags** *(milestone 8, approved 2026-10-31)*:
+  - **Support, scale and creator values can be set by the user.** A set value replaces the parsed values of that kind
+    on that item. It keeps the kind's colour, with a pencil mark on the pill.
+  - **A wrong generated tag can be hidden** per item. The hide is user data and survives rescans.
+  - **Tags apply in both views**, because a tag belongs to the real file or folder.
+  - **Inherited in search only.** A folder's tags count for everything below it, but only the tagged item shows dots
+    and pills.
+  - **Topmost match.** A search of only tag terms lists the topmost matching items. Adding a name term lets items inside
+    a tagged folder match too.
+  - **Supported and unsupported exclude each other.** An item that would get both gets neither, so a model with both
+    kinds of variant has no support tag; its variant folders and files carry their own.
+  - **A value the user sets overrides everything below it** in search. A model set to `32mm` means `tag:25mm` no longer
+    finds its variants or files. It also overrides the generated value of its kind from above: a variant set to `32mm`
+    in a `25mm` model drops out of `tag:25mm`, with everything below it.
+  - **Editing is in a side panel** for the selected tile, one at a time.
+
 ### Made by me (correct any that are wrong)
+
+- **Milestone 8 details:**
+  - **Shadowed subfolders follow their owner.** A Models node whose real paths are all among its parent's (`images`,
+    `docs`, a logical variant, a part folder, a single-model group) is *shadowed*: its owner is the parent, or the
+    parent's owner when the parent is shadowed too (`link_tags`, once per tree in `build_views`). A shadowed node shows
+    only its generated tags; the user tags and hides of the shared folder belong to the owner, so only the owner shows
+    them as dots and pills, and search and "From folders above" count them once, at the owner. Tag edits on a shadowed
+    node are refused ("`<name>` shares its folder with `<owner>`; tag `<owner>` instead"), and the panel says so, with
+    the owner's name as a button that selects it.
+    - A model of loose files directly in a group or collection folder is shadowed by that group: the group carries its
+      user tags.
+    - A wrong generated tag on a shadowed node can't be hidden (a hide would land on the owner's folder).
+    - **The remaining known limit:** siblings whose shared folder isn't their parent's path (two models resolved from
+      loose files in one folder below a group with a folder of its own, say) still share user tags and hides.
+  - **Scale follows the same exclusion rule** as support: variants with different scales give no scale tag.
+  - **A model's support and scale tags** are what all its variants have in common (the intersection over its variants);
+    a model with no variants gets none.
+  - **Files folders take the tags their matching Models nodes have in common.** Only Model, Variant and File nodes, and
+    Group or Collection nodes that have tags, take part; parts, `images`, `docs`, volumes and untagged groups are
+    ignored.
+  - **`tag:` terms are split out in Regexp mode too.** The remaining text is joined with single spaces, so a tag query
+    collapses runs of whitespace in the name part.
+  - **A hidden generated tag is hidden on that item only.** Hiding `supported` on a variant folder drops the folder out
+    of `tag:supported`, but the files inside still carry their own `supported` and become hits.
+  - **`node_tags.inherited`** lists each ancestor folder's own effective tags, root down to the parent, with that
+    folder's path as the source.
+  - **`all_tags`** is the stored names plus the distinct generated names of the Models tree. The UI dedups by kind and
+    name.
+  - **A write to a node with no real path** returns an error ("can't be tagged").
+  - **Edition is purple** (the primaries are used up). Edition can't be set by the user, only hidden.
+  - **Searching inside a folder with the tag** returns its direct children, never the scope folder itself.
 
 - **Milestone 7 follow-up details:**
   - **`config.yaml` is read once at startup**; edit it, then restart. A missing file is written as a commented template
@@ -451,7 +545,7 @@ From the milestone 3 review:
   is correct, but slow on a big volume, and it has no test.
 - **Adding an outer root changes the resolution unit and the `m:` keys of the inner content.** All of Vol.1 becomes one
   collection under `STL`. Saved thumbnail choices (`selected_thumb`) use these keys since milestone 5, so they are lost
-  for that content; tags will need keys that survive this.
+  for that content. Tags avoid this by using real-path keys (milestone 8).
 - **Duplicate roots already in a v3 DB** (`D:\Models` and `d:\models\`) are never merged. New ones are refused.
 - **A source that keeps failing** makes its collection re-resolve on every run (about 0.1 s per collection).
 - **Missing indexes:** `sources(root_id, collection)` and `assets(group_id)`.
@@ -531,6 +625,30 @@ From the usability pass:
 - **A rescan of a folder renamed on disk** deletes its sources, but its new name is outside the scope and isn't added.
   Its models are gone until a parent folder is rescanned.
 - **Opening a file from an archive can't be stopped.**
+
+From milestone 8:
+
+- **Out of scope by design:**
+  - Tagging many tiles at once (multi-select).
+  - A tag manager: renaming, merging or deleting a tag everywhere.
+  - Filters other than `tag:` terms (such as "has no picture"), and negation (`-tag:x`).
+  - Catalog id as a tag.
+  - Showing inherited tags as dots.
+- **Siblings that share a folder share user tags and hides** when that folder isn't their parent's path (see
+  "Made by me"; subfolders sharing their parent's path follow their owner). Fixing it would need node-level keys that
+  survive adding an outer root.
+- **Tag popover:** it may flash for a frame at the top-left, and it is mouse-only (the dots have an `aria-label` only).
+- **Tag panel:** suggestion de-duplication has no test.
+- **Tag search:**
+  - `tag:"a"b` becomes the tag `a` plus the term `b`; this is unspecified.
+  - The ancestor walk computes effective tags even when the query has no tag terms.
+  - There are no tests for a tagged subtree skipped by the filter, the 1000-hit cap with tag terms, a user tag not masking
+    a generated one, or an ancestor walk that stops at an unresolved segment.
+  - `node_tags` echoes the caller's casing in `from`.
+- **Tag store:** an unknown kind in a row is dropped silently, `hide` accepts any kind, and a user tag on a vanished path
+  is kept for good.
+- **Generated tags:** the Files-view folder copy skips Image and Locked nodes when matching by path, and `groups.attrs`
+  JSON parsing has no test.
 
 ## Working notes
 

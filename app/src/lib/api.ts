@@ -4,6 +4,11 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type View = "models" | "files";
 
+export type TagKind = "user" | "support" | "scale" | "creator" | "edition";
+
+/** `byUser`: set (or confirmed) by the user rather than generated. */
+export type Tag = { kind: TagKind; name: string; byUser: boolean };
+
 export type Item = {
   name: string;
   kind: string;
@@ -21,6 +26,8 @@ export type Item = {
   pics: Thumb[];
   /** The saved (or default) slot in `[composite?, ...pics]`. */
   slot: number;
+  /** The item's own tags (inherited ones count in search only). */
+  tags: Tag[];
 };
 
 export type Thumb = { entryId: number; key: string };
@@ -118,6 +125,23 @@ export const cancelExtract = () => invoke<void>("cancel_extract");
 export const requestThumbs = (high: number[], low: number[]) =>
   invoke<{ ready: ThumbReady[]; pending: number }>("request_thumbs", { high, low });
 export const selectThumb = (nodeKey: string, imageKey: string) => invoke<void>("select_thumb", { nodeKey, imageKey });
+
+export type InheritedTag = { tag: Tag; from: string[] };
+/** A node by its name and the path of the folder that lists it. */
+export type Owner = { name: string; path: string[] };
+/** `owner` is set when the node shares its folder with the node above: tag that one instead. */
+export type NodeTags = { own: Tag[]; inherited: InheritedTag[]; hidden: Tag[]; owner: Owner | null };
+
+export const nodeTags = (view: View, path: string[], name: string) => invoke<NodeTags>("node_tags", { view, path, name });
+export const addTag = (view: View, path: string[], name: string, kind: TagKind, tag: string) =>
+  invoke<void>("add_tag", { view, path, name, kind, tag });
+export const removeTag = (view: View, path: string[], name: string, kind: TagKind, tag: string) =>
+  invoke<void>("remove_tag", { view, path, name, kind, tag });
+export const hideTag = (view: View, path: string[], name: string, kind: TagKind, tag: string) =>
+  invoke<void>("hide_tag", { view, path, name, kind, tag });
+export const unhideTag = (view: View, path: string[], name: string, kind: TagKind, tag: string) =>
+  invoke<void>("unhide_tag", { view, path, name, kind, tag });
+export const allTags = () => invoke<Tag[]>("all_tags");
 
 export const beginDrag = (view: View, path: string[], names: string[]) => invoke<DragInfo>("begin_drag", { view, path, names });
 export const extractTo = (view: View, path: string[], names: string[], dest: string) =>

@@ -106,6 +106,23 @@ These are written by the resolver and rebuilt on every index, so user data never
     folder of what it holds. For a model, that is the common folder of its files: pictures attached from elsewhere don't
     widen it.
 
+## Tag keys (milestone 8)
+
+- **User tags and hides are keyed by real path**, not by the `m:`/`f:` node keys: `r:` + the node's real path,
+  lowercased, e.g. `r:d:\models\vol.1\robots.zip!legion/`. The same thing therefore has the same key in both views, and
+  the key survives adding an outer root.
+- **A merged folder** is tagged under every one of its real paths, and reading takes the union.
+- **Shadowed subfolders follow their owner.** A node whose real paths are all among its parent's (`images`, `docs`, a
+  logical variant, a part folder, a model of loose files directly in its group's folder) is shadowed: the owner is the
+  parent, or the parent's owner when the parent is shadowed too. The user tags and hides of the shared folder belong to
+  the owner: the shadowed node shows only its generated tags, and tag edits on it are refused with a pointer to the
+  owner. A wrong generated tag on a shadowed node therefore can't be hidden. Siblings whose shared folder isn't their
+  parent's path (two models from loose files in one folder below a group with its own folder) still share user tags and
+  hides. Generated tags are given per node and are never shared.
+- **Generated tags** (support, scale, creator, edition) are derived from the resolved tables when the views are built
+  and are not stored. A user tag on a folder counts for everything below it in search, but only the tagged item shows
+  dots and pills.
+
 ## Oddities that will show up as strange folders
 
 - **`stl BM019` is a model inside group `BM019`** (`Blue Makers/BM019/stl_BM019`). The wrapper folder wasn't collapsed

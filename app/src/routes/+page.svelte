@@ -15,6 +15,7 @@
   import ResultList from "#lib/ResultList.svelte";
   import SearchBar from "#lib/SearchBar.svelte";
   import StatusBar from "#lib/StatusBar.svelte";
+  import TagPanel from "#lib/TagPanel.svelte";
   import TileGrid from "#lib/TileGrid.svelte";
   import Toolbar from "#lib/Toolbar.svelte";
 
@@ -65,6 +66,26 @@
       return false;
     }
   }
+
+  /** The tag side panel open; remembered in this browser. */
+  let tagsOpen = $state(readTagPanel());
+
+  function readTagPanel(): boolean {
+    try {
+      return localStorage.getItem("tagPanel") === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  $effect(() => {
+    const v = tagsOpen ? "1" : "0";
+    try {
+      localStorage.setItem("tagPanel", v);
+    } catch {
+      // storage unavailable: the choice lasts for this session
+    }
+  });
 
   $effect(() => {
     const v = asList ? "1" : "0";
@@ -194,10 +215,14 @@
   function openHit(h: Hit) {
     closeSearch();
     if (h.openable) load(goTo(nav, [...h.parent, h.name], scroll));
-    else {
-      selected = h.name;
-      load(goTo(nav, h.parent, scroll), 0, true, h.name);
-    }
+    else showIn(h.parent, h.name);
+  }
+
+  /** Go to the folder at `path` with its tile `name` selected and scrolled into view. */
+  function showIn(path: string[], name: string) {
+    leaveSearch();
+    selected = name;
+    load(goTo(nav, path, scroll), 0, true, name);
   }
 
   /** "Open" in a hit's menu: a folder opens in the browser, a file in its Windows app. */
@@ -382,7 +407,7 @@
 
   function onKey(e: KeyboardEvent) {
     const t = e.target as HTMLElement | null;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
     if ((e.key === "Backspace" && !e.altKey) || (e.altKey && e.key === "ArrowUp")) {
       e.preventDefault();
       goUp();
@@ -408,6 +433,21 @@
   const selectedItem = $derived(listing?.items.find((i) => i.name === selected) ?? null);
   const showingResults = $derived(searching && query !== "");
   const shownReal = $derived(showingResults ? selectedHit?.real : selectedItem?.real);
+  /** What the tag panel edits: the selected hit or item, else the open folder (nothing in results without a selection). */
+  const tagTarget = $derived.by(() => {
+    if (showingResults) return selectedHit ? { path: selectedHit.parent, name: selectedHit.name } : { path: [], name: "" };
+    return { path: nav.path, name: selectedItem ? selectedItem.name : "" };
+  });
+  const tagTitle = $derived(
+    showingResults ? (selectedHit?.name ?? "") : (selectedItem?.name ?? (listing?.name || "Library")),
+  );
+
+  /** After a tag edit the listing and any open search show the new tags. */
+  function tagsChanged() {
+    load(nav, scroll, true);
+    if (searching) runSearch();
+  }
+
   const footerHint = $derived(notice || (shownReal ? shownReal.join(" | ") : run.hint || usage));
   const noRoots = $derived(status !== null && status.roots.length === 0);
 
@@ -449,6 +489,8 @@
     onRescan={rescan}
     {searching}
     onSearch={() => (searching ? closeSearch() : openSearch())}
+    {tagsOpen}
+    onTags={() => (tagsOpen = !tagsOpen)}
   />
   {#if searching}
     <SearchBar
@@ -463,84 +505,99 @@
       onClose={closeSearch}
     />
   {/if}
-  <main>
-    {#if showingResults}
-      {#if found?.hits.length && !asList}
-        <TileGrid
-          items={found.hits}
-          {view}
-          idOf={hitId}
-          selected={selectedHit ? hitId(selectedHit) : null}
-          scroll={0}
-          captionOf={(h) => whereShort(h.parent, scope)}
-          marksOf={(h) => h.marks}
-          onSelect={selectHit}
-          onOpen={openHit}
-          onScroll={() => (menu = null)}
-          onDragOut={dragHit}
-          onMenu={showMenu}
-          {urls}
-          {chosen}
-          onSlot={pickSlot}
-          onVisible={(r) => {
-            visible = r;
-            askThumbs();
-          }}
-        />
-      {:else if found?.hits.length}
-        <ResultList
-          hits={found.hits}
-          {scope}
-          selected={selectedHit ? hitId(selectedHit) : null}
-          onSelect={selectHit}
-          onOpen={openHit}
-          onDragOut={dragHit}
-          onMenu={showMenu}
-        />
-      {:else if found && !searchError}
-        <p class="empty">No matches</p>
+  <div class="body">
+    <main>
+      {#if showingResults}
+        {#if found?.hits.length && !asList}
+          <TileGrid
+            items={found.hits}
+            {view}
+            idOf={hitId}
+            selected={selectedHit ? hitId(selectedHit) : null}
+            scroll={0}
+            captionOf={(h) => whereShort(h.parent, scope)}
+            marksOf={(h) => h.marks}
+            onSelect={selectHit}
+            onOpen={openHit}
+            onScroll={() => (menu = null)}
+            onDragOut={dragHit}
+            onMenu={showMenu}
+            {urls}
+            {chosen}
+            onSlot={pickSlot}
+            onVisible={(r) => {
+              visible = r;
+              askThumbs();
+            }}
+          />
+        {:else if found?.hits.length}
+          <ResultList
+            hits={found.hits}
+            {scope}
+            selected={selectedHit ? hitId(selectedHit) : null}
+            onSelect={selectHit}
+            onOpen={openHit}
+            onDragOut={dragHit}
+            onMenu={showMenu}
+          />
+        {:else if found && !searchError}
+          <p class="empty">No matches</p>
+        {/if}
+      {:else if error}
+        <p class="empty error">Could not list this folder: {error}</p>
+      {:else if noRoots && !busy}
+        <div class="empty">
+          <h1>No folders yet</h1>
+          <p>Add a folder of STL files or archives to start browsing.</p>
+          <button type="button" class="add" onclick={addFolder}>Add folder</button>
+        </div>
+      {:else if listing}
+        <div class="title" title={listing.real.join("\n")}>
+          <h1>{listing.name || "Library"}</h1>
+          <span>{folderSummary(listing, view)}</span>
+        </div>
+        {#if listing.items.length}
+          <TileGrid
+            items={listing.items}
+            {view}
+            {selected}
+            scroll={restore}
+            {reveal}
+            onSelect={select}
+            onOpen={openItem}
+            onScroll={(t) => {
+              scroll = t;
+              menu = null;
+            }}
+            onDragOut={dragOut}
+            onMenu={showMenu}
+            {urls}
+            {chosen}
+            onSlot={pickSlot}
+            onVisible={(r) => {
+              visible = r;
+              askThumbs();
+            }}
+          />
+        {:else}
+          <p class="empty">{busy ? "Indexing…" : "This folder is empty"}</p>
+        {/if}
       {/if}
-    {:else if error}
-      <p class="empty error">Could not list this folder: {error}</p>
-    {:else if noRoots && !busy}
-      <div class="empty">
-        <h1>No folders yet</h1>
-        <p>Add a folder of STL files or archives to start browsing.</p>
-        <button type="button" class="add" onclick={addFolder}>Add folder</button>
-      </div>
-    {:else if listing}
-      <div class="title" title={listing.real.join("\n")}>
-        <h1>{listing.name || "Library"}</h1>
-        <span>{folderSummary(listing, view)}</span>
-      </div>
-      {#if listing.items.length}
-        <TileGrid
-          items={listing.items}
+    </main>
+    {#if tagsOpen}
+      <aside aria-label="Tags">
+        <TagPanel
           {view}
-          {selected}
-          scroll={restore}
-          {reveal}
-          onSelect={select}
-          onOpen={openItem}
-          onScroll={(t) => {
-            scroll = t;
-            menu = null;
-          }}
-          onDragOut={dragOut}
-          onMenu={showMenu}
-          {urls}
-          {chosen}
-          onSlot={pickSlot}
-          onVisible={(r) => {
-            visible = r;
-            askThumbs();
-          }}
+          path={tagTarget.path}
+          name={tagTarget.name}
+          title={tagTitle}
+          onchange={tagsChanged}
+          onerror={(m) => (notice = m)}
+          onowner={(o) => showIn(o.path, o.name)}
         />
-      {:else}
-        <p class="empty">{busy ? "Indexing…" : "This folder is empty"}</p>
-      {/if}
+      </aside>
     {/if}
-  </main>
+  </div>
   <StatusBar
     {status}
     hint={footerHint}
@@ -561,11 +618,25 @@
     flex-direction: column;
     height: 100vh;
   }
-  main {
+  .body {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
+    flex-direction: row;
+  }
+  main {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
     flex-direction: column;
+  }
+  aside {
+    flex: none;
+    width: 260px;
+    overflow-y: auto;
+    border-left: 1px solid var(--line);
+    background: var(--bar);
   }
   .title {
     display: flex;

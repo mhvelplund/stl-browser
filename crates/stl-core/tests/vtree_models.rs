@@ -1,5 +1,6 @@
 //! Port of `prototype/tests/test_vtree.py` (names now lowercase), plus the naming and hover rules.
 use stl_core::vtree::models::*;
+use stl_core::vtree::tags::{Tag, TagKind};
 use stl_core::vtree::{NodeId, NodeKind, Tree};
 
 const COLL: &str = "Sci-Fi Collection Vol.2/06. Robots STC";
@@ -47,11 +48,12 @@ fn model(id: i64, group_id: Option<i64>, name: &str, raw: &str, path: &str, edit
         file_count: 0,
         image_count: 0,
         variants: Vec::new(),
+        designer: None,
     }
 }
 
 fn group(id: i64, parent_id: Option<i64>, name: &str, path: &str, poster: Option<i64>, posters: u32) -> GroupRow {
-    GroupRow { id, collection: s(COLL), parent_id, name: s(name), path: s(path), poster_asset_id: poster, posters }
+    GroupRow { id, collection: s(COLL), parent_id, name: s(name), path: s(path), poster_asset_id: poster, posters, designer: None, edition: None }
 }
 
 fn input() -> ModelsInput {
@@ -198,4 +200,54 @@ fn model_hover_ignores_sidecar_pictures_outside_its_folder() {
     i.assets = vec![AssetRow { real: s("D:\\V\\A\\K.jpg"), ..asset(5, 3, 9, "K.jpg", "image", "preview") }];
     let t = build_models(&i, true);
     assert_eq!(t.nodes[at(&t, &format!("{COLL}/Elites/Sub/Spinecrawlers"))].real, [s("D:\\V\\A\\k.zip!K")]);
+}
+
+fn tag(kind: TagKind, name: &str) -> Tag {
+    Tag { kind, name: name.into(), by_user: false }
+}
+
+fn tags_of(t: &Tree, path: &str) -> Vec<Tag> {
+    t.nodes[at(t, path)].info.tags.clone()
+}
+
+#[test]
+fn model_with_split_support_has_no_support_tag() {
+    let mut inp = input();
+    inp.models[0].variants = vec![s("supported+25mm"), s("unsupported+25mm")];
+    inp.files = vec![
+        file(1, 1, "a.stl", "model", "", "supported+25mm"),
+        file(1, 2, "b.stl", "model", "", "unsupported+25mm"),
+    ];
+    let t = build_models(&inp, true);
+    let m = format!("{COLL}/Elites/Archivist Zarvos (5E)");
+    assert_eq!(tags_of(&t, &m), vec![tag(TagKind::Scale, "25mm"), tag(TagKind::Edition, "5e")]);
+    let both = vec![tag(TagKind::Support, "supported"), tag(TagKind::Scale, "25mm")];
+    assert_eq!(tags_of(&t, &format!("{m}/supported · 25mm")), both);
+    assert_eq!(tags_of(&t, &format!("{m}/supported · 25mm/a.stl")), both);
+    assert_eq!(
+        tags_of(&t, &format!("{m}/unsupported · 25mm/b.stl")),
+        vec![tag(TagKind::Support, "unsupported"), tag(TagKind::Scale, "25mm")]
+    );
+    assert!(tags_of(&t, &format!("{m}/docs/README.pdf")).is_empty());
+}
+
+#[test]
+fn model_creator_and_edition() {
+    let mut inp = input();
+    inp.models[0].designer = Some(s("Pixel Forge"));
+    let t = build_models(&inp, true);
+    assert_eq!(
+        tags_of(&t, &format!("{COLL}/Elites/Archivist Zarvos (5E)")),
+        vec![tag(TagKind::Creator, "pixel forge"), tag(TagKind::Edition, "5e")]
+    );
+}
+
+#[test]
+fn group_creator() {
+    let mut inp = input();
+    inp.groups[2].designer = Some(s("Someone"));
+    inp.groups[0].edition = Some(s("Core Set"));
+    let t = build_models(&inp, true);
+    assert_eq!(tags_of(&t, &format!("{COLL}/Elites")), vec![tag(TagKind::Creator, "someone")]);
+    assert_eq!(tags_of(&t, COLL), vec![tag(TagKind::Edition, "core set")]);
 }
