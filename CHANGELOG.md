@@ -1,3 +1,20 @@
+## v1.1.0 (2026-10-31)
+
+### Feat
+
+- tag several items at once
+- select several items and drag or extract them together
+- merge tags across a selection
+- rubber-band hit testing
+- selection model
+- bulk tag commands
+- drag and extract take targets from any folder
+
+### Fix
+
+- steady rubber band, locked items counted in a drag, no text selection
+- bulk remove leaves a generated tag alone where another value overrides it
+
 ## v1.0.0 (2026-10-31)
 
 ### Feat
