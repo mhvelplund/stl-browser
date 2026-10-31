@@ -658,6 +658,7 @@
           path={tagTarget.path}
           name={tagTarget.name}
           title={tagTitle}
+          targets={tagTargets}
           onchange={tagsChanged}
           onerror={(m) => (notice = m)}
           onowner={(o) => showIn(o.path, o.name)}

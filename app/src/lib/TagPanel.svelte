@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as api from "./api";
-  import type { NodeTags, Owner, Tag, TagKind, View } from "./api";
-  import { groupByKind, KIND_LABEL, removalAction } from "./tags";
+  import type { EditOp, NodeTags, Owner, Tag, TagKind, Target, TargetTags, View } from "./api";
+  import { groupByKind, KIND_LABEL, mergeTags, removalAction, type MergedTag } from "./tags";
   import TagPill from "./TagPill.svelte";
 
   let {
@@ -9,6 +9,7 @@
     path,
     name,
     title,
+    targets,
     onchange,
     onerror,
     onowner,
@@ -18,6 +19,8 @@
     path: string[];
     name: string;
     title: string;
+    /** The selected items; with more than one the panel edits them all (`path` / `name` are unused). */
+    targets: Target[];
     /** Called after an edit, so the listing and any search reload. */
     onchange: () => void;
     onerror: (message: string) => void;
@@ -40,8 +43,30 @@
   const owner = $derived(data?.owner ?? null);
   const suggestions = $derived([...new Set(known.filter((t) => t.kind === kind).map((t) => t.name))].sort());
 
+  /** Several selected: their tags merged, shared ones solid and the rest faded. */
+  const multi = $derived(targets.length > 1);
+  let many = $state<TargetTags[] | null>(null);
+  const merged = $derived(many ? mergeTags(many) : null);
+  const mergedGroups = $derived(merged ? (groupByKind(merged.tags) as [TagKind, MergedTag[]][]) : []);
+  /** None of the selected items can be tagged here. */
+  const allSkipped = $derived(!!merged && merged.total === 0);
+  const locked = $derived(multi ? allSkipped : !!owner);
+
   async function reload() {
     const my = ++seq;
+    if (multi) {
+      try {
+        const d = await api.nodesTags(view, targets);
+        if (my === seq) many = d;
+      } catch (e) {
+        if (my === seq) {
+          many = null;
+          onerror(`Could not load tags: ${e}`);
+        }
+      }
+      return;
+    }
+    many = null;
     if (!taggable) {
       data = null;
       return;
@@ -67,7 +92,7 @@
 
   $effect(() => {
     // reload when the target changes
-    void [view, path, name];
+    void [view, path, name, targets];
     reload();
   });
 
@@ -98,17 +123,70 @@
     return edit(`restore ${t.name}`, () => api.unhideTag(view, path, name, t.kind, t.name));
   }
 
+  /** One edit over every selected item. */
+  function bulk(what: string, op: EditOp, k: TagKind, value: string) {
+    return edit(what, async () => {
+      await api.editTags(view, targets, op, k, value);
+    });
+  }
+
   async function add(e: SubmitEvent) {
     e.preventDefault();
     const value = text.trim();
     if (!value) return;
-    if (await edit(`add ${value}`, () => api.addTag(view, path, name, kind, value))) text = "";
+    const call = multi ? () => bulk(`add ${value}`, "add", kind, value) : () => edit(`add ${value}`, () => api.addTag(view, path, name, kind, value));
+    if (await call()) text = "";
   }
+
+  const skippedHint = (n: number) => `${n} item${n === 1 ? " shares a folder" : "s share a folder"} with another item and ${n === 1 ? "is" : "are"} skipped`;
 </script>
 
+{#snippet addForm()}
+  <form class="add" onsubmit={add}>
+    <select bind:value={kind} aria-label="Tag kind" disabled={locked}>
+      {#each SETTABLE as k (k)}<option value={k}>{KIND_LABEL[k]}</option>{/each}
+    </select>
+    <input bind:value={text} list="tag-suggestions" placeholder="Add a tag" aria-label="Tag name" spellcheck="false" disabled={locked} />
+    <datalist id="tag-suggestions">
+      {#each suggestions as s (s)}<option value={s}></option>{/each}
+    </datalist>
+    <button type="submit" disabled={locked || !text.trim()}>Add</button>
+  </form>
+{/snippet}
+
 <div class="panel">
-  <h2 title={title}>{title}</h2>
-  {#if !taggable}
+  <h2 title={multi ? undefined : title}>{multi ? `${targets.length} items` : title}</h2>
+  {#if multi}
+    {#if merged && merged.skipped > 0}
+      <p class="hint">{skippedHint(merged.skipped)}</p>
+    {/if}
+    <section>
+      <h3>Tags</h3>
+      {#if mergedGroups.length}
+        {#each mergedGroups as [k, tags] (k)}
+          <div class="row">
+            <span class="kind">{KIND_LABEL[k]}</span>
+            <span class="pills">
+              {#each tags as t (t.name)}
+                <TagPill
+                  tag={t}
+                  removable
+                  disabled={locked}
+                  faded={t.faded}
+                  count={t.faded ? `${t.count} of ${merged?.total}` : undefined}
+                  onremove={(x) => bulk(`remove ${x.name}`, "remove", x.kind, x.name)}
+                  onpick={t.faded && t.kind !== "edition" ? (x) => bulk(`add ${x.name}`, "fill", x.kind, x.name) : undefined}
+                />
+              {/each}
+            </span>
+          </div>
+        {/each}
+      {:else}
+        <p class="hint">No tags</p>
+      {/if}
+      {@render addForm()}
+    </section>
+  {:else if !taggable}
     <p class="hint">Select a folder or a model to tag it.</p>
   {:else}
     {#if owner}
@@ -135,23 +213,7 @@
       {:else}
         <p class="hint">No tags</p>
       {/if}
-      <form class="add" onsubmit={add}>
-        <select bind:value={kind} aria-label="Tag kind" disabled={!!owner}>
-          {#each SETTABLE as k (k)}<option value={k}>{KIND_LABEL[k]}</option>{/each}
-        </select>
-        <input
-          bind:value={text}
-          list="tag-suggestions"
-          placeholder="Add a tag"
-          aria-label="Tag name"
-          spellcheck="false"
-          disabled={!!owner}
-        />
-        <datalist id="tag-suggestions">
-          {#each suggestions as s (s)}<option value={s}></option>{/each}
-        </datalist>
-        <button type="submit" disabled={!!owner || !text.trim()}>Add</button>
-      </form>
+      {@render addForm()}
     </section>
     {#if data?.inherited.length}
       <section>
