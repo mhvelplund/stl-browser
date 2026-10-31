@@ -81,11 +81,11 @@ pub struct Hit {
     pub marks: Vec<(usize, usize)>,
 }
 
-/// The tags a node inherits from its ancestors: their names, and the kinds a user-set tag
-/// overrode (which mask generated tags of that kind below).
+/// The tags a node inherits from its ancestors, and the kinds a user-set tag overrode (which
+/// mask generated tags of that kind below).
 #[derive(Debug, Clone, Default)]
 pub struct Inherited {
-    names: HashSet<String>,
+    tags: HashSet<Tag>,
     overridden: HashSet<TagKind>,
 }
 
@@ -94,17 +94,20 @@ impl Inherited {
         own.iter().filter(|t| t.by_user || !self.overridden.contains(&t.kind))
     }
 
-    /// What a child of a node with these own (effective) tags inherits.
+    /// What a child of a node with these own (effective) tags inherits. A kind the node sets by
+    /// user also drops the generated tags of that kind it inherited.
     pub fn push(&self, own: &[Tag]) -> Inherited {
         let mut next = self.clone();
-        next.names.extend(self.visible(own).map(|t| t.name.clone()));
-        next.overridden.extend(own.iter().filter(|t| t.by_user && t.kind != TagKind::User).map(|t| t.kind));
+        let set: Vec<TagKind> = own.iter().filter(|t| t.by_user && t.kind != TagKind::User).map(|t| t.kind).collect();
+        next.tags.retain(|t| t.by_user || !set.contains(&t.kind));
+        next.tags.extend(self.visible(own).cloned());
+        next.overridden.extend(set);
         next
     }
 
     /// Whether `own` plus what was inherited covers every term.
     pub fn covers(&self, own: &[Tag], terms: &[String]) -> bool {
-        terms.iter().all(|term| self.names.contains(term) || self.visible(own).any(|t| &t.name == term))
+        terms.iter().all(|term| self.tags.iter().chain(self.visible(own)).any(|t| &t.name == term))
     }
 
     /// Inherited set at the folder `path` (the root to that folder, the folder's own tags included).
@@ -113,12 +116,12 @@ impl Inherited {
         let mut node = 0;
         for part in path {
             let part = part.to_lowercase();
-            match t.nodes[node].children.iter().find(|&&c| t.nodes[c].name == part) {
-                Some(&c) if !is_file_kind(t.nodes[c].kind) => {
+            match t.nodes[node].children.iter().find(|&&c| t.nodes[c].name == part && !is_file_kind(t.nodes[c].kind)) {
+                Some(&c) => {
                     inh = inh.push(&own(c));
                     node = c;
                 }
-                _ => break,
+                None => break,
             }
         }
         inh

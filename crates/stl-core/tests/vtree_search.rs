@@ -229,3 +229,49 @@ fn own_is_never_read_without_tag_terms() {
     assert_eq!(ids(&hits), [fx.arm, fx.other_arm]);
     assert_eq!(calls.get(), 0);
 }
+
+/// The regression: a user-set scale on a variant didn't mask the model's generated scale, so
+/// `tag:25mm` still found the variant's subtree.
+#[test]
+fn user_value_masks_generated_inherited_from_above() {
+    let mut t = Tree::new();
+    let vol = t.add(0, "vol", NodeKind::Volume);
+    let model = t.add(vol, "warrior", NodeKind::Model);
+    let va = t.add(model, "a", NodeKind::Variant);
+    let arm_a = t.add(va, "arm.stl", NodeKind::File);
+    let vb = t.add(model, "b", NodeKind::Variant);
+    let arm_b = t.add(vb, "arm.stl", NodeKind::File);
+    t.nodes[model].info.tags = vec![tag(TagKind::Scale, "25mm", false)];
+    t.nodes[va].info.tags = vec![tag(TagKind::Scale, "32mm", true)];
+    let own = own_of(&t);
+    let m = Matcher::new("arm", Mode::Word, false).unwrap();
+    let run = |q: &[&str]| {
+        let want = terms(q);
+        let filter = TagFilter { terms: &want, own: &own, start: Inherited::default() };
+        ids(&search(&t, 0, &[], Some(&m), Field::Name, &|_| true, &filter, 100).0)
+    };
+    assert_eq!(run(&["25mm"]), [arm_b]);
+    assert_eq!(run(&["32mm"]), [arm_a]);
+    // the same through a scope inside the variant
+    let scope = segs(&["vol", "warrior", "a"]);
+    let start = Inherited::along(&t, &scope, &own);
+    let want = terms(&["25mm"]);
+    let filter = TagFilter { terms: &want, own: &own, start };
+    assert!(search(&t, va, &scope, Some(&m), Field::Name, &|_| true, &filter, 100).0.is_empty());
+}
+
+/// A file and a folder sharing a name must not stop the walk to the scope.
+#[test]
+fn along_skips_a_file_with_the_folders_name() {
+    let mut t = Tree::new();
+    let vol = t.add(0, "vol", NodeKind::Volume);
+    t.add(vol, "legion", NodeKind::File);
+    let legion = t.add(vol, "legion", NodeKind::Folder);
+    let arm = t.add(legion, "arm.stl", NodeKind::File);
+    t.nodes[legion].info.tags = vec![tag(TagKind::User, "tinmen", true)];
+    let own = own_of(&t);
+    let scope = segs(&["vol", "legion"]);
+    let want = terms(&["tinmen"]);
+    let filter = TagFilter { terms: &want, own: &own, start: Inherited::along(&t, &scope, &own) };
+    assert_eq!(ids(&search(&t, legion, &scope, None, Field::Name, &|_| true, &filter, 100).0), [arm]);
+}
