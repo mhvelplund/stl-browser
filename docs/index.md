@@ -7,9 +7,9 @@ anything out to Explorer to extract it.
 
 - Full design: [`superpowers/specs/2026-10-27-stl-browser-design.md`]
 - Implementation plans: [`superpowers/plans/2026-10-27-skeleton-and-scan.md`] (milestones 1–2),
-  [`superpowers/plans/2026-10-27-resolve.md`] (milestone 3), `superpowers/plans/2026-10-27-browse-ui.md`
-  (milestone 4), `superpowers/plans/2026-10-28-thumbnails.md` (milestone 5) and
-  `superpowers/plans/2026-10-28-drag-out.md` (milestone 6). The last three are git-ignored.
+  [`superpowers/plans/2026-10-27-resolve.md`] (milestone 3), `superpowers/plans/2026-10-27-browse-ui.md` (milestone 4),
+  `superpowers/plans/2026-10-28-thumbnails.md` (milestone 5) and `superpowers/plans/2026-10-28-drag-out.md` (milestone
+  6). The last three are git-ignored.
 - Layout patterns, the model resolver, and the parity baseline: [`archive-patterns.md`]
 - The virtual folder tree, the two views, and the naming rules: [`virtual-tree.md`]
 - UI mockup (clickable): <https://claude.ai/artifact/Vum7b4yY5TjCBW1Csez2BH>
@@ -24,22 +24,22 @@ anything out to Explorer to extract it.
 
 ## Status
 
-| Milestone                                                                                    | State                                         |
-|----------------------------------------------------------------------------------------------|-----------------------------------------------|
-| 1. Skeleton: workspace, Tauri app, `~/.stl-browser/index.db`, schema + migrations, settings  | done                                          |
-| 2. Scan: native ZIP/7Z/RAR, nested archives, extract by chain, discovery, incremental rescan | done                                          |
-| 3. Resolve: port of the prototype's model resolver and virtual tree                          | done                                          |
-| 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                      | done                                          |
-| 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | done                                          |
-| 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | done                                          |
-| 6.5. Usability pass: stop buttons, folder rescans, view-switch place, open files, STL pictures | done (branch `usability-pass`)              |
-| 7. Search: name search with Free/Word/Regexp, scoped to the open folder                      | done                                          |
-| 7.5. Follow-ups: view toggle button, shown file endings (`config.yaml`), tile search results | built (branch `m7-polish`), manual check due  |
-| 8. Tags and filters                                                                          | later (only the database tables exist so far) |
+| Milestone                                                                                      | State                                         |
+|------------------------------------------------------------------------------------------------|-----------------------------------------------|
+| 1. Skeleton: workspace, Tauri app, `~/.stl-browser/index.db`, schema + migrations, settings    | done                                          |
+| 2. Scan: native ZIP/7Z/RAR, nested archives, extract by chain, discovery, incremental rescan   | done                                          |
+| 3. Resolve: port of the prototype's model resolver and virtual tree                            | done                                          |
+| 4. Browse UI: add folder, rescan, Models/Files views, grid, breadcrumbs                        | done                                          |
+| 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                                | done                                          |
+| 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                     | done                                          |
+| 6.5. Usability pass: stop buttons, folder rescans, view-switch place, open files, STL pictures | done (branch `usability-pass`)                |
+| 7. Search: name search with Free/Word/Regexp, scoped to the open folder                        | done                                          |
+| 7.5. Follow-ups: view toggle button, shown file endings (`config.yaml`), tile search results   | built (branch `m7-polish`), manual check due  |
+| 8. Tags and filters                                                                            | later (only the database tables exist so far) |
 
-Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and
-18,050 files (1,243 of them in nested archives) with 0 errors, the same as the prototype. It takes about 35 s, and a
-rescan of unchanged folders takes 0 s.
+Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and 18,050
+files (1,243 of them in nested archives) with 0 errors, the same as the prototype. It takes about 35 s, and a rescan of
+unchanged folders takes 0 s.
 
 Milestone 3 was checked against Vol.1 + Vol.2 together with `stlx parity` against the prototype's DB:
 
@@ -53,9 +53,9 @@ Milestone 3 was checked against Vol.1 + Vol.2 together with `stlx parity` agains
   - Re-resolving all 11 collections takes 0.7 s.
   - Each view builds in under 0.5 s.
 
-Milestone 4 was smoke-tested in `tauri dev` on Vol.1, driving the WebView over CDP: navigation in both views, a
-RAR opened as a folder with correct hover paths, Rescan with progress (unchanged: 0.9 s), Back/Up, the virtualized grid
-and the light scheme. The native Add folder dialog and padlock tiles still need a manual check.
+Milestone 4 was smoke-tested in `tauri dev` on Vol.1, driving the WebView over CDP: navigation in both views, a RAR
+opened as a folder with correct hover paths, Rescan with progress (unchanged: 0.9 s), Back/Up, the virtualized grid and
+the light scheme. The native Add folder dialog and padlock tiles still need a manual check.
 
 Milestone 5 was smoke-tested the same way on Vol.1 + Vol.2:
 
@@ -68,8 +68,8 @@ Milestone 5 was smoke-tested the same way on Vol.1 + Vol.2:
 Milestone 6 was checked on Vol.1 without a mouse:
 
 - **The spike** proved the risky part first. A data object living in the MTA, used on an STA through a marshaled proxy
-  and dropped on the shell's own drop target for a folder, is copied asynchronously. `GetData` is called on a COM
-  worker thread, not on the STA.
+  and dropped on the shell's own drop target for a folder, is copied asynchronously. `GetData` is called on a COM worker
+  thread, not on the STA.
 - **Extract to…** (driven over CDP in `tauri dev`) wrote two of Grimlax's models: `ancient sarcophagus` (65 files,
   straight from the RAR) and `phalanx of dawn e` (4 files, about 95 MB, from a zip inside the RAR). Both trees match
   `stlx tree models … --real` exactly.
@@ -90,8 +90,8 @@ The usability pass (6.5) was checked in `tauri dev` on a scratch index of Vol.1,
   - "Use as folder thumbnail" on an STL in `supported` makes it that folder's picture.
   - The model then takes only that one picture from `supported`.
 - **A synthetic mouse Back** (button 3) goes up one folder and the webview doesn't navigate.
-- **Not checked by script:** double-clicking a file to open it in its Windows app (it would launch apps on the
-  desktop), and a real mouse's Back button.
+- **Not checked by script:** double-clicking a file to open it in its Windows app (it would launch apps on the desktop),
+  and a real mouse's Back button.
 
 ## Architecture
 
@@ -140,8 +140,7 @@ Two smaller modules came with milestone 6:
   - It keeps the stack of open archives, so files from the same nested archive in a row don't reopen it.
   - A panic in an archive reader fails only that one file.
 - **Right-click** on a tile offers **Open** and **Extract to…**.
-  - Extract to… writes the same tree into a chosen folder, on a background thread (`extract-progress`,
-    `extract-done`).
+  - Extract to… writes the same tree into a chosen folder, on a background thread (`extract-progress`, `extract-done`).
   - A top-level name that already exists there becomes `name (2)`, so nothing is overwritten.
   - Files are written as `.part` and renamed when complete.
   - A file that fails is reported, and the rest are still written.
@@ -159,8 +158,8 @@ Two smaller modules came with milestone 6:
     - A row goes with its entry (cascade), so a re-listed source drops its rows.
     - A row only counts while its file exists.
     - `error` rows are not retried until the entry changes.
-- `thumbs/<location>/<content>.jpg`: thumbnails within 256×256 (JPEG, quality 80) that can always be regenerated.
-  Images keep their shape; STL/OBJ renders are square on the tile grey `#2A2E34`, since JPEG has no transparency.
+- `thumbs/<location>/<content>.jpg`: thumbnails within 256×256 (JPEG, quality 80) that can always be regenerated. Images
+  keep their shape; STL/OBJ renders are square on the tile grey `#2A2E34`, since JPEG has no transparency.
   - `<location>` is the first 16 hex chars of blake3(source path + `\0` + chain).
   - `<content>` is `<crc>-<size>` from the archive, or blake3 of the bytes for loose files.
 - Tests and `stlx` can point everything elsewhere with `STL_BROWSER_HOME`.
@@ -191,35 +190,35 @@ Two smaller modules came with milestone 6:
   - After the scan, every collection with a source listed or removed is resolved again, plus any collection never
     resolved.
   - Resolved rows of collections with no sources left are dropped.
-  - The resolver is a faithful port of the prototype, with all 47 prototype tests ported. See
-    [`archive-patterns.md`].
+  - The resolver is a faithful port of the prototype, with all 47 prototype tests ported. See [`archive-patterns.md`].
 
 ### Views
 
 Both views are built in memory from the DB (`views.rs` loads the rows, `stl-core::vtree` builds the tree). See
-[`virtual-tree.md`] for the layout and the naming rules. `stlx tree models|files [<path>] [--depth N] [--real]`
-prints either view.
+[`virtual-tree.md`] for the layout and the naming rules. `stlx tree models|files [<path>] [--depth N] [--real]` prints
+either view.
 
 ### The app (milestone 4)
 
 - **Commands:** `status` (roots with a `missing` flag, model and file counts, busy flag), `list_folder(view, path)`,
   `add_folder(path)` (the folder picker is the dialog plugin, called from the UI) and `rescan`.
 - **Index runs** happen on a background thread with their own SQLite connection, so browsing keeps working. They send
-  `index-progress` (`index`/`total`/`name` per source) and one `index-done` (stats, warnings or error). Only one run at a
-  time: a second request is refused. A panic in a run is caught and reported as an error.
+  `index-progress` (`index`/`total`/`name` per source) and one `index-done` (stats, warnings or error). Only one run at
+  a time: a second request is refused. A panic in a run is caught and reported as an error.
 - **The tree cache.** Both trees and their per-node counts are built once (on first use) and kept in `AppState`. The
   index worker rebuilds them after each run and swaps them in before it sends `index-done`.
 - **`list_folder`** takes the path as name segments (a name may contain `/`), and lists the deepest folder that still
   exists. The returned `path` says where it ended up, so the UI follows when a folder vanished in a rescan.
-- **UI:** toolbar (Back, Up, breadcrumbs, the Models/Files toggle, Search, Rescan (🗘), Add folder), a title row with counts, a virtualized
-  grid of tiles (min 200 px, square art, name, caption) and a status bar (stats, missing folders, the selected item's
-  real path, index progress). Placeholder art per kind until thumbnails; a box-with-padlock for locked archives.
-  Double-click or Enter opens; Backspace / Alt+Up goes up; Alt+Left goes back (Back restores the scroll position).
-- **Search:** the magnifying glass opens a bar under the toolbar that searches the open folder and everything below
-  it. Free (letters in order, the default), Word (one piece) or Regexp; Aa (case) only in the Files view, whose names
-  keep their case. Typing swaps the grid for a grid of matching tiles (or the compact list); a folder opens in the
-  browser and closes search, a file is shown selected in its folder. Esc closes the bar. Matching runs in Rust on the
-  cached view tree (`stl_core::vtree::search`, `search` command), at most 1000 results.
+- **UI:** toolbar (Back, Up, breadcrumbs, the Models/Files toggle, Search, Rescan (🗘), Add folder), a title row with
+  counts, a virtualized grid of tiles (min 200 px, square art, name, caption) and a status bar (stats, missing folders,
+  the selected item's real path, index progress). Placeholder art per kind until thumbnails; a box-with-padlock for
+  locked archives. Double-click or Enter opens; Backspace / Alt+Up goes up; Alt+Left goes back (Back restores the scroll
+  position).
+- **Search:** the magnifying glass opens a bar under the toolbar that searches the open folder and everything below it.
+  Free (letters in order, the default), Word (one piece) or Regexp; Aa (case) only in the Files view, whose names keep
+  their case. Typing swaps the grid for a grid of matching tiles (or the compact list); a folder opens in the browser
+  and closes search, a file is shown selected in its folder. Esc closes the bar. Matching runs in Rust on the cached
+  view tree (`stl_core::vtree::search`, `search` command), at most 1000 results.
 
 ## Decisions
 
@@ -243,8 +242,8 @@ prints either view.
   - Don't try to scan them.
   - Show them as a single item with a **box-with-padlock** icon.
 - **All file and folder names are lowercase in the virtual file system** *(added after milestone 2)*:
-  - Folders that overlap merge their contents. This includes names differing only in case, like `D:\Models` and `d:\models\`,
-    and an added folder that sits inside another added folder.
+  - Folders that overlap merge their contents. This includes names differing only in case, like `D:\Models` and
+    `d:\models\`, and an added folder that sits inside another added folder.
   - Files whose names collide get a numbered postfix: `ORC.STL` and `Orc.stl` become `orc_1.stl` and `orc_2.stl`.
 - **Hovering over any element shows its real path** *(added after milestone 2)*. Each step into an archive is marked
   with `!`, e.g. `folder/example.zip!orcs/mech.zip!leg.stl`.
@@ -260,17 +259,18 @@ prints either view.
   - Double-clicking a file opens it in its Windows app.
 - **Follow-ups to milestone 7** *(the user's list after trying search)*:
   - **The view toggle is one icon button** showing the view it switches *to*: a wireframe box (Models) in the Files
-    view, a page with three lines (Files) in the Models view. Its hover text is "Switch to Models?" / "Switch to Files?".
-  - **Only chosen file endings are shown**, in both views and in search. They live in `~/.stl-browser/config.yaml`
-    under `shown_extensions`; when the key is missing, the defaults apply:
-    `stl obj 3mf fbx blend dae`, `lys lyt chitubox ctb photon sl1`, `jpg jpeg png gif webp bmp`,
-    `pdf txt md html htm`. Folders, archives and locked archives always show. (Picked from the endings found in the
-    real index: stl, jpg, obj, hmp, lys, png, hmv, txt, qml, pyc, mtl, dll, html, chitubox, pdf, exe, 3mf, … .)
-    This replaces the old Files-view-only rule, which made `.exe$` find hits in Models but not in Files.
-  - **Search results are tiles** like the browser (thumbnails, carousels, highlighted names, the last two folders as
-    the caption). A button in the search bar switches to the compact list and is remembered. Double-click a folder
-    hit to open it; double-click a file hit to go to its folder with the file selected and scrolled into view.
-    Right-click → Open still opens a file in its Windows app.
+    view, a page with three lines (Files) in the Models view. Its hover text is "Switch to Models?" / "Switch to
+    Files?".
+  - **Only chosen file endings are shown**, in both views and in search. They live in `~/.stl-browser/config.yaml` under
+    `shown_extensions`; when the key is missing, the defaults apply: `stl obj 3mf fbx blend dae`,
+    `lys lyt chitubox ctb photon sl1`, `jpg jpeg png gif webp bmp`, `pdf txt md html htm`. Folders, archives and locked
+    archives always show. (Picked from the endings found in the real index: stl, jpg, obj, hmp, lys, png, hmv, txt, qml,
+    pyc, mtl, dll, html, chitubox, pdf, exe, 3mf, … .) This replaces the old Files-view-only rule, which made `.exe$`
+    find hits in Models but not in Files.
+  - **Search results are tiles** like the browser (thumbnails, carousels, highlighted names, the last two folders as the
+    caption). A button in the search bar switches to the compact list and is remembered. Double-click a folder hit to
+    open it; double-click a file hit to go to its folder with the file selected and scrolled into view. Right-click →
+    Open still opens a file in its Windows app.
 - **Releases are automatic** *(added during milestone 7)*. Every push to `main` runs `.github/workflows/release.yml`:
   - Commitizen (`.cz.toml`) picks the next version from the conventional commits since the last tag. It writes it to
     `Cargo.toml`, `Cargo.lock`, `tauri.conf.json`, `package.json` and `package-lock.json`, updates `CHANGELOG.md`, and
@@ -285,8 +285,8 @@ prints either view.
 - **Milestone 7 follow-up details:**
   - **`config.yaml` is read once at startup**; edit it, then restart. A missing file is written as a commented template
     listing the defaults. A file that doesn't parse is ignored (defaults apply) and the status bar says why.
-  - **The filter is `stl_core::vtree::filter::Shown`**, matched on the ending of the node name. `browse::visible`
-    uses it for listings, child counts, search and the export plan.
+  - **The filter is `stl_core::vtree::filter::Shown`**, matched on the ending of the node name. `browse::visible` uses
+    it for listings, child counts, search and the export plan.
   - **Drags and Extract to… follow the filter** (what you see is what you get). `mtl` is hidden by default, so an
     exported OBJ loses its materials unless `mtl` is added to the config.
   - **An inner archive that wasn't expanded** (past the nesting depth, or unreadable) is a file node named
@@ -295,13 +295,13 @@ prints either view.
   - **The defaults leave out some endings the resolver knows** (`ply ztl zpr step stp`, `cbddlp goo pwmo pwms`, `rtf`),
     as the user picked. A model made only of those shows a file count but opens empty.
   - **Search hits carry the full tile** (`Hit` flattens an `Item`), so the result grid reuses `TileGrid`.
-  - **Revealing a tile** re-applies when the grid's layout settles (a scrollbar appearing drops a column) until the
-    user scrolls.
+  - **Revealing a tile** re-applies when the grid's layout settles (a scrollbar appearing drops a column) until the user
+    scrolls.
   - **The Models view can show fewer documents than the Files view** for the same scope (7 vs 9 PDFs in Vol.1): the
     resolver doesn't place boilerplate like readmes and licenses. That isn't the filter.
 - **Usability pass details:**
-  - **A stopped index** deletes no vanished sources, because it hasn't seen them all. It still resolves the
-    collections it changed, then skips the remaining roots.
+  - **A stopped index** deletes no vanished sources, because it hasn't seen them all. It still resolves the collections
+    it changed, then skips the remaining roots.
   - **A rescan's scope** comes from the open folder's real paths, cut at the first archive. Discovery still walks the
     whole root, but only sources in scope are listed or deleted. A folder source counts when the scope is inside it,
     except for the root's own one (it holds only the files directly in the root). At Library, everything is rescanned.
@@ -331,8 +331,8 @@ prints either view.
 - **Panics are caught.** The release build uses `panic = "unwind"`, so a crash inside an archive library becomes an
   error on that archive instead of closing the app.
 - *Added in milestone 6:*
-  - **A drag writes the tree as the view shows it**, with lowercase names and the `_N` clash names. The Files view
-    takes only its visible items (folders, images and mesh files). The Models view also takes `docs`.
+  - **A drag writes the tree as the view shows it**, with lowercase names and the `_N` clash names. The Files view takes
+    only its visible items (folders, images and mesh files). The Models view also takes `docs`.
   - **Windows-safe names:**
     - `< > : " / \ | ? *` and control characters become `_`.
     - Trailing dots and spaces are dropped.
@@ -358,13 +358,13 @@ prints either view.
   - **The queue replaces, it doesn't append.** Each request sends what is on screen (high) and the rest of the folder
     (low), replacing whatever was queued, so a folder you left doesn't keep the workers busy. Jobs from one archive run
     as one batch (≤ 64), and the archive is read in a single pass.
-  - **Std worker threads instead of rayon** (cores − 1). The queue needs priorities, grouping and replace, which a
-    rayon pool doesn't give.
+  - **Std worker threads instead of rayon** (cores − 1). The queue needs priorities, grouping and replace, which a rayon
+    pool doesn't give.
   - **Carousel slots:**
     - Pictures are up to 11 nested images (the hero first if it lives outside the folder), else up to 6 nested STL/OBJ
       files.
-    - The composite is four child folders' shown pictures, filled up from the folder's own pictures. It needs at least
-      2 cells, otherwise there is no composite slot.
+    - The composite is four child folders' shown pictures, filled up from the folder's own pictures. It needs at least 2
+      cells, otherwise there is no composite slot.
     - Default slot: the hero, else slot 0.
     - The saved choice is honoured only while it still exists.
   - **The CRC shortcut.** An archive entry's cache name is known from its stored CRC, so a hit costs no extraction.
@@ -374,15 +374,14 @@ prints either view.
     being picked as a model's meshes.
 - *Added in milestone 4:*
   - **Trees are cached in `AppState`** and rebuilt by the index worker after every run (about 0.8 s for both views).
-  - ~~The Files view hides other files.~~ Replaced after milestone 7: both views show only the endings in
-    `config.yaml` (see "Follow-ups to milestone 7").
+  - ~~The Files view hides other files.~~ Replaced after milestone 7: both views show only the endings in `config.yaml`
+    (see "Follow-ups to milestone 7").
   - **No Extract to… or thumbnail UI yet**, so no buttons that do nothing.
   - **Offline fonts:** IBM Plex if installed, else Segoe UI; nothing is fetched at runtime.
   - **UI logic tests** use Node's built-in runner on the TypeScript files (no test framework dependency).
 - *Added in milestone 3:*
   - **Resolution unit: (root, collection).** Two different roots can't mix their files in one resolve. Two roots with
-    the same volume name still show one shared collection folder in the Models view, where clashing models get
-    `_N`.
+    the same volume name still show one shared collection folder in the Models view, where clashing models get `_N`.
   - **Merge or number, by node kind:**
     - Folders merge only when they are really the same folder: case variants, or an added folder inside another one.
       Model variant and part folders also merge by name, as in the prototype.
@@ -391,8 +390,8 @@ prints either view.
   - **A root inside another root** gets its own volume, which shows the content of its folder in the outer volume. In
     the Models view, if the resolver has collapsed that folder, the volume lists the topmost items below it instead.
   - **Hover for synthetic folders.**
-    - A model's hover is the common folder of its files. Pictures attached from outside it are left out, otherwise
-      every model with a sidecar picture would hover as its whole collection.
+    - A model's hover is the common folder of its files. Pictures attached from outside it are left out, otherwise every
+      model with a sidecar picture would hover as its whole collection.
     - Groups, variants, parts, `images` and `docs` hover as the common folder of their children.
   - **Password-protected archives in the Models view** are padlock items directly in their collection folder.
   - **Node keys:**
@@ -448,23 +447,23 @@ From the milestone 2 review:
 
 From the milestone 3 review:
 
-- **Adding an outer root after an inner one** re-reads every archive, because the cache lookup filters on `root_id`.
-  It is correct, but slow on a big volume, and it has no test.
-- **Adding an outer root changes the resolution unit and the `m:` keys of the inner content.** All of Vol.1 becomes
-  one collection under `STL`. Saved thumbnail choices (`selected_thumb`) use these keys since milestone 5, so they are
-  lost for that content; tags will need keys that survive this.
+- **Adding an outer root after an inner one** re-reads every archive, because the cache lookup filters on `root_id`. It
+  is correct, but slow on a big volume, and it has no test.
+- **Adding an outer root changes the resolution unit and the `m:` keys of the inner content.** All of Vol.1 becomes one
+  collection under `STL`. Saved thumbnail choices (`selected_thumb`) use these keys since milestone 5, so they are lost
+  for that content; tags will need keys that survive this.
 - **Duplicate roots already in a v3 DB** (`D:\Models` and `d:\models\`) are never merged. New ones are refused.
 - **A source that keeps failing** makes its collection re-resolve on every run (about 0.1 s per collection).
 - **Missing indexes:** `sources(root_id, collection)` and `assets(group_id)`.
 - **`parse_name` compiles a regex on every call.**
 - **ASCII-only digit checks** (`is_digits`, the designer-tag test). Sources with no collection are skipped.
-- **The resolver merges same-stem archives** (`X.zip` + `x.rar`) into one model, as the prototype did. The
-  `x_1`/`x_2` rule applies only to the Files view.
+- **The resolver merges same-stem archives** (`X.zip` + `x.rar`) into one model, as the prototype did. The `x_1`/`x_2`
+  rule applies only to the Files view.
 
 From the milestone 4 review:
 
-- **Navigation can be lost under rapid input.** `nav` only changes when a listing arrives, so two quick Backspaces go
-  up one level, and an `index-done` reload that lands mid-navigation drops the click.
+- **Navigation can be lost under rapid input.** `nav` only changes when a listing arrives, so two quick Backspaces go up
+  one level, and an `index-done` reload that lands mid-navigation drops the click.
 - **`Listing.path` echoes the request's casing.** It's harmless today because the UI always sends tree names.
 - **"files" means two things on screen.** The footer counts every indexed entry, while the title and tiles count only
   mesh files.
@@ -484,21 +483,20 @@ From the milestone 5 review:
 - **Broken thumbnail images.** A thumbnail `<img>` that 404s shows the browser's broken-image glyph. It has no
   `onerror`, and an `immutable` URL won't reload.
 - **A composite whose cells all failed** shows four blank cells instead of the kind icon.
-- **Skeleton flash after an index run.** Every tile shows the "generating" placeholder briefly, because the url map
-  is cleared before the reload answers.
-- **Image decoding is heavy.** It converts and resizes at full resolution, which costs a lot of memory and CPU for
-  8k photos multiplied by the worker count.
+- **Skeleton flash after an index run.** Every tile shows the "generating" placeholder briefly, because the url map is
+  cleared before the reload answers.
+- **Image decoding is heavy.** It converts and resizes at full resolution, which costs a lot of memory and CPU for 8k
+  photos multiplied by the worker count.
 - **The `thumb` protocol spawns one OS thread per request.** It should use `spawn_blocking`.
 - **The queue builds a group key per queued job on every batch pop.** That is O(N) work under the lock.
-- **Solid archives are decompressed once per 64-job batch.** Batches of one archive can also run on several workers
-  at once.
+- **Solid archives are decompressed once per 64-job batch.** Batches of one archive can also run on several workers at
+  once.
 - **A NULL entry size becomes 0**, which bypasses the size caps. Archive listings always store sizes.
-- **Orphaned cache files are never removed.** The cache grows as archives change, and the `.webp` files from before
-  the switch to JPEG stay behind too. Deleting `thumbs/` is always safe.
-- **Models without images show their first mesh in tree order**, often a base or an arm. Picking the largest file
-  would do better.
-- **Not smoke-checked:** thumbnails in the light theme, OBJ files from real data, and padlock tiles next to
-  thumbnails.
+- **Orphaned cache files are never removed.** The cache grows as archives change, and the `.webp` files from before the
+  switch to JPEG stay behind too. Deleting `thumbs/` is always safe.
+- **Models without images show their first mesh in tree order**, often a base or an arm. Picking the largest file would
+  do better.
+- **Not smoke-checked:** thumbnails in the light theme, OBJ files from real data, and padlock tiles next to thumbnails.
 
 From the milestone 6 review:
 
@@ -543,8 +541,7 @@ From the usability pass:
   - Point `STL_BROWSER_HOME` at an indexed home and set `STL_BROWSER_DRAG_CHECK="models|<folder path>|<name>"`.
   - Run `cargo test -p app --lib drag_real -- --ignored --nocapture`.
   - It drops the item on the shell's drop target for a temp folder.
-- Run RAR against a real file with
-  `STL_BROWSER_RAR_FIXTURE=<file.rar> cargo test -p stl-scan --test rar -- --ignored`.
+- Run RAR against a real file with `STL_BROWSER_RAR_FIXTURE=<file.rar> cargo test -p stl-scan --test rar -- --ignored`.
 - Dev CLI: `cargo run --release -p stl-index --bin stlx -- add <dir> | index | tree models|files [<path>] | parity
   <prototype.db> | extract <entry_id> <out>`. Set `STL_BROWSER_HOME` to keep test runs out of `~/.stl-browser`.
 - `unrar_sys` doesn't link `advapi32`, so `stl-scan` links it explicitly.
