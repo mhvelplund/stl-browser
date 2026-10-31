@@ -4,11 +4,16 @@ export type Selection = { ids: ReadonlySet<string>; anchor: string | null };
 
 export const empty: Selection = { ids: new Set(), anchor: null };
 
+export type Mods = { ctrl: boolean; shift: boolean };
+export const NONE: Mods = { ctrl: false, shift: false };
+/** The selection modifiers of a mouse event (Cmd counts as Ctrl). */
+export const mods = (e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): Mods => ({ ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
+
 const one = (id: string): Selection => ({ ids: new Set([id]), anchor: id });
 
 /** `order` is the display order of ids. Plain: just `id`. ctrl: toggle `id`. shift: anchor..id
  * (replacing, or added with ctrl). The anchor moves to `id` except on shift. */
-export function click(s: Selection, id: string, order: readonly string[], mods: { ctrl: boolean; shift: boolean }): Selection {
+export function click(s: Selection, id: string, order: readonly string[], mods: Mods): Selection {
   if (mods.shift && s.anchor !== null) {
     const a = order.indexOf(s.anchor);
     const b = order.indexOf(id);

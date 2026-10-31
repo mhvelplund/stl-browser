@@ -3,7 +3,10 @@
   import { untrack } from "svelte";
   import type { SvelteMap } from "svelte/reactivity";
   import type { Item, View } from "./api";
+  import { gridHits, type Rect } from "./band";
+  import { bandGesture } from "./bandgesture";
   import { current } from "./carousel";
+  import type { Mods } from "./selection";
   import { columns, revealTop, tileWidth, visibleRows } from "./grid";
   import Tile from "./Tile.svelte";
 
@@ -13,6 +16,8 @@
     selected,
     scroll,
     onSelect,
+    onBand,
+    onClear,
     onOpen,
     onScroll,
     urls,
@@ -28,11 +33,15 @@
   }: {
     items: T[];
     view: View;
-    /** The selected tile's `idOf`. */
-    selected: string | null;
+    /** The selected tiles' `idOf`. */
+    selected: ReadonlySet<string>;
     /** Scroll position to restore whenever `items` changes. */
     scroll: number;
-    onSelect: (i: T) => void;
+    onSelect: (i: T, mods: Mods) => void;
+    /** A rubber band's hits; `fresh` on a band's first call. */
+    onBand: (ids: string[], ctrl: boolean, fresh: boolean) => void;
+    /** A click on empty space. */
+    onClear: () => void;
     onOpen: (i: T) => void;
     onScroll: (top: number) => void;
     urls: SvelteMap<number, string | null>;
@@ -76,6 +85,15 @@
     }),
   );
 
+  let box = $state<Rect | null>(null);
+  const band = bandGesture(() => el, {
+    startsOn: (t) => !t.closest(".tile"),
+    hits: (r) => gridHits(r, items.length, { cols, tile, gap: GAP, pad: PAD, rowHeight }).map((i) => idOf(items[i])),
+    onBand: (ids, ctrl, fresh) => onBand(ids, ctrl, fresh),
+    onClear: () => onClear(),
+    onRect: (r) => (box = r),
+  });
+
   const first = $derived(range.first * cols);
   const last = $derived(Math.min(items.length, range.last * cols));
   $effect(() => {
@@ -109,6 +127,8 @@
   });
 </script>
 
+<!-- the rubber band is a mouse extra; keyboard users have Ctrl+A and the tiles' own buttons -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="scroller"
   bind:this={el}
@@ -119,7 +139,12 @@
     if (Math.abs(el!.scrollTop - top) > 1) toReveal = null;
     top = el!.scrollTop;
     onScroll(top);
+    band.scrolled();
   }}
+  onpointerdown={band.down}
+  onpointermove={band.move}
+  onpointerup={band.up}
+  onpointercancel={band.cancel}
 >
   <div class="spacer" style:height="{rows * rowHeight - GAP + 2 * PAD}px">
     {#each visible as row (row.r)}
@@ -133,12 +158,12 @@
           <Tile
             {item}
             {view}
-            selected={selected === idOf(item)}
+            selected={selected.has(idOf(item))}
             slot={current(item, chosen)}
             caption={captionOf?.(item)}
             marks={marksOf?.(item)}
             {urls}
-            onSelect={(i) => onSelect(i as T)}
+            onSelect={(i, m) => onSelect(i as T, m)}
             onOpen={(i) => onOpen(i as T)}
             onSlot={(i, s) => onSlot(i as T, s)}
             onDragOut={(i) => onDragOut(i as T)}
@@ -147,6 +172,9 @@
         {/each}
       </div>
     {/each}
+    {#if box}
+      <div class="band" style:left="{box.x0}px" style:top="{box.y0}px" style:width="{box.x1 - box.x0}px" style:height="{box.y1 - box.y0}px"></div>
+    {/if}
   </div>
 </div>
 
@@ -160,6 +188,13 @@
   }
   .spacer {
     position: relative;
+  }
+  .band {
+    position: absolute;
+    z-index: 2;
+    pointer-events: none;
+    border: 1px solid var(--sel-line);
+    background: color-mix(in srgb, var(--sel-line) 18%, transparent);
   }
   .row {
     position: absolute;
