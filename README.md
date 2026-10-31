@@ -27,7 +27,8 @@ Tags, search and filters are planned. See [`docs/index.md`](docs/index.md) for t
 ## Download
 
 
-Download the [standalone executable] or the [installer] from the [v0.2.0 release]-page. Both need Windows 10 or 11 with
+Download the standalone executable (`stl-browser-<version>.exe`) or the installer (`stl-browser_<version>_x64-setup.exe`)
+from the [latest release]. Both need Windows 10 or 11 with
 the WebView2 runtime, which Windows 11 already has. The binaries aren't code-signed, so Windows SmartScreen may warn you
 the first time you start it.
 
@@ -66,8 +67,16 @@ npm --prefix app run build:exe
 ```
 
 This skips the installer and also copies the exe to `target/release/stl-browser-<version>.exe`, with the version taken
-from `app/src-tauri/tauri.conf.json`. Upload that file to a GitHub release. It also remaps local source paths (your
-Cargo home and the checkout) so the exe doesn't embed paths from your machine.
+from `app/src-tauri/tauri.conf.json`. It also remaps local source paths (your Cargo home and the checkout) so the exe
+doesn't embed paths from your machine.
+
+## Releases
+
+Releases are automatic. On every push to `main`, [commitizen] reads the [conventional commits] since the last tag and
+picks the next version: `fix:` bumps the patch version, `feat:` the minor, and a breaking change the minor while the
+version is 0.x. It updates the version in every file and in `CHANGELOG.md`, then commits and tags. The workflow then
+builds the exe and the installer and attaches them to a new GitHub release. Don't change version numbers by hand. Check
+what the next bump would be with `uvx --from commitizen cz bump --dry-run`.
 
 ## Run it
 
@@ -123,10 +132,10 @@ Design documents:
 [MIT](LICENSE)
 
 <!-- Links -->
-[installer]: https://github.com/mhvelplund/stl-browser/releases/download/v0.2.0/stl-browser_0.2.0_x64-setup.exe
+[commitizen]: https://commitizen-tools.github.io/commitizen/
+[conventional commits]: https://www.conventionalcommits.org/
+[latest release]: https://github.com/mhvelplund/stl-browser/releases/latest
 [Node.js]: https://nodejs.org/
 [Rust]: https://rustup.rs/
-[standalone executable]: https://github.com/mhvelplund/stl-browser/releases/download/v0.2.0/stl-browser-0.2.0.exe
-[v0.2.0 release]: https://github.com/mhvelplund/stl-browser/releases/tag/v0.2.0
 [Visual Studio Build Tools]: https://visualstudio.microsoft.com/visual-cpp-build-tools/
 [WebView2 runtime]: https://developer.microsoft.com/microsoft-edge/webview2/

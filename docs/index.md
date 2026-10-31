@@ -257,6 +257,14 @@ prints either view.
     Rescan does the same for a folder tile.
   - Switching between Models and Files keeps you at, or near, the same place.
   - Double-clicking a file opens it in its Windows app.
+- **Releases are automatic** *(added during milestone 7)*. Every push to `main` runs `.github/workflows/release.yml`:
+  - Commitizen (`.cz.toml`) picks the next version from the conventional commits since the last tag. It writes it to
+    `Cargo.toml`, `Cargo.lock`, `tauri.conf.json`, `package.json` and `package-lock.json`, updates `CHANGELOG.md`, and
+    commits and tags as the `commitizen-ci` GitHub App (client ID in the `CZ_APP_CLIENT_ID` variable, key in the
+    `CZ_APP_PRIVATE_KEY` secret).
+  - A version set by hand that has no tag yet is released as it is (this is how 0.3.0 ships).
+  - A Windows runner builds the exe and the NSIS installer and attaches them to a new GitHub release.
+  - Internal path dependencies no longer pin a `version`, so a bump doesn't break them.
 
 ### Made by me (correct any that are wrong)
 
