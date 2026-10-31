@@ -314,7 +314,10 @@ pub fn edit_tags_impl(state: &AppState, view: View, targets: Vec<Target>, op: Ed
         let set: Vec<&Tag> = f.keys.iter().filter_map(|k| user.set.get(k)).flatten().collect();
         let user_set = set.iter().any(|t| is(t));
         let hidden = f.hidden.iter().any(is);
-        let shown_generated = f.generated.iter().any(is) && !hidden;
+        // generated and not hidden, and not overridden by a different user-set value of its kind
+        // (a user-set copy of the same value goes too, so the generated one would show after it)
+        let overridden_by_other = kind != TagKind::User && set.iter().any(|t| t.kind == kind && t.name != name);
+        let shown_generated = f.generated.iter().any(is) && !hidden && !overridden_by_other;
         let changed = match op {
             EditOp::Add => {
                 write(tagstore::add)?;

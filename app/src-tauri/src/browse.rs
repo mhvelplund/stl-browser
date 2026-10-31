@@ -1193,6 +1193,19 @@ mod tests {
     }
 
     #[test]
+    fn edit_tags_remove_skips_an_overridden_generated_tag() {
+        // gob shows the user's `unsupported`, not its generated `supported`: × on a faded
+        // `supported` must leave gob alone
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let gob = with_gob(dir.path(), &state);
+        tag(&state, View::Models, &["vol", "coll"], "gob", "support", "unsupported");
+        assert_eq!(edit(&state, vec![gob.clone()], EditOp::Remove, "support", "supported").changed, 0);
+        let n = &nodes_tags_impl(&state, View::Models, vec![gob]).unwrap()[0];
+        assert!(n.hidden.is_empty(), "{:?}", n.hidden);
+    }
+
+    #[test]
     fn edit_tags_fill_unhides() {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
