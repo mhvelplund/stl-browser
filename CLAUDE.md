@@ -85,6 +85,9 @@ bookkeeping for the regenerable `~/.stl-browser/thumbs/` cache; its rows cascade
   and publishes a release (`.github/workflows/release.yml`, `.cz.toml`). Don't bump versions or edit `CHANGELOG.md` by
   hand, keep commit messages conventional, and don't pin a `version` on internal path dependencies.
   `uvx --from commitizen cz bump --dry-run` shows the next bump.
+- **Commit types: only `feat!`, `feat`, `fix` and `chore`.** Anything that shouldn't change the version is a `chore`
+  with a scope, e.g. `chore(docs): ...` for documentation, `chore(ci): ...` for the pipeline. No `docs:`, `ci:`,
+  `refactor:`, `test:` etc.
 - **Release profile uses `panic = "unwind"` on purpose** so archive-parser panics become source errors. Don't switch to
   `abort`.
 - **Password-protected archives are never opened or decrypted**: detect from headers, store `locked = 1` with no
@@ -101,6 +104,9 @@ bookkeeping for the regenerable `~/.stl-browser/thumbs/` cache; its rows cascade
 - **Don't kill processes by image name** (e.g. `taskkill /IM node.exe`); find a dev server by its port.
 
 ## Workflow
+
+**Never commit directly to `main`** unless explicitly asked. To start a new feature, branch from a fresh `main`:
+`git checkout main && git pull` first, then `git checkout -b <feature-branch>`. Land work through a pull request.
 
 Milestones are planned with `superpowers:writing-plans` into `docs/superpowers/plans/` and executed inline with TDD per
 step, a ledger in `.superpowers/sdd/<plan>/`, and one fresh reviewer at the end. Keep `docs/index.md` (status,

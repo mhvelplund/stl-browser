@@ -3,5 +3,6 @@ build-exe = "npm --prefix {{config_root}}/app run build:exe"
 build-installer = "npm --prefix {{config_root}}/app run build:installer"
 
 [tools]
+"aqua:cli/cli" = "latest"
 node = "24.22.1"
 rust = "1.99.1"
