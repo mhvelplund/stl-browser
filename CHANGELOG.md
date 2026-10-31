@@ -1,3 +1,10 @@
+## v1.0.0 (2026-10-31)
+
+### Feat
+
+- release 1.0.0
+- tag autocomplete in the search bar
+
 ## v0.5.0 (2026-10-31)
 
 ### Feat
