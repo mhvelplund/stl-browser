@@ -1,3 +1,14 @@
+## v0.4.0 (2026-10-31)
+
+### Feat
+
+- **ui**: view toggle button and search results as tiles
+- show only configured file endings in both views
+
+### Fix
+
+- show unexpanded inner archives and drop stale search reveals
+
 ## v0.3.0 (2026-10-31)
 
 ### Feat
