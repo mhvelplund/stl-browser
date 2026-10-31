@@ -57,11 +57,14 @@ pub fn models_view(conn: &Connection) -> Result<Tree, IndexError> {
         let mut st = conn.prepare(
             "SELECT g.id, g.collection, g.parent_id, g.name, g.path,
                 (SELECT min(a.id) FROM assets a WHERE a.group_id = g.id AND a.model_id IS NULL AND a.kind = 'image'),
-                (SELECT count(*) FROM assets a WHERE a.group_id = g.id AND a.model_id IS NULL AND a.kind = 'image')
+                (SELECT count(*) FROM assets a WHERE a.group_id = g.id AND a.model_id IS NULL AND a.kind = 'image'),
+                g.attrs
              FROM groups g ORDER BY g.id",
         )?;
         input.groups = st
             .query_map([], |r| {
+                let attrs: Option<serde_json::Value> = r.get::<_, Option<String>>(7)?.and_then(|s| serde_json::from_str(&s).ok());
+                let attr = |k: &str| attrs.as_ref().and_then(|a| a.get(k)).and_then(|v| v.as_str()).map(str::to_string);
                 Ok(GroupRow {
                     id: r.get(0)?,
                     collection: r.get(1)?,
@@ -70,6 +73,8 @@ pub fn models_view(conn: &Connection) -> Result<Tree, IndexError> {
                     path: r.get(4)?,
                     poster_asset_id: r.get(5)?,
                     posters: r.get(6)?,
+                    designer: attr("designer"),
+                    edition: attr("edition"),
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -77,7 +82,7 @@ pub fn models_view(conn: &Connection) -> Result<Tree, IndexError> {
     {
         let mut st = conn.prepare(
             "SELECT id, collection, group_id, name, raw_name, path, edition, coalesce(hero_asset_id, hero_fallback_asset_id),
-                file_count, image_count, variants FROM models ORDER BY id",
+                file_count, image_count, variants, designer FROM models ORDER BY id",
         )?;
         input.models = st
             .query_map([], |r| {
@@ -93,6 +98,7 @@ pub fn models_view(conn: &Connection) -> Result<Tree, IndexError> {
                     file_count: r.get(8)?,
                     image_count: r.get(9)?,
                     variants: serde_json::from_str(&r.get::<_, String>(10)?).unwrap_or_default(),
+                    designer: r.get(11)?,
                 })
             })?
             .collect::<Result<_, _>>()?;

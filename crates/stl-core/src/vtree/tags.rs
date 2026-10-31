@@ -1,7 +1,7 @@
 //! Tags: the model, generated variant tags, user overrides and the `tag:` search syntax.
 use std::collections::HashMap;
 
-use super::Node;
+use super::{Node, Tree};
 
 /// The tag kinds; the derived order is the dot order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -102,6 +102,44 @@ pub fn exclusive(mut tags: Vec<Tag>) -> Vec<Tag> {
         tags.retain(|t| t.kind != TagKind::Scale);
     }
     tags
+}
+
+/// The tags every one of `sets` has; empty when there are no sets.
+fn common(sets: &[&Vec<Tag>]) -> Vec<Tag> {
+    let Some((first, rest)) = sets.split_first() else { return Vec::new() };
+    first.iter().filter(|t| rest.iter().all(|s| s.contains(t))).cloned().collect()
+}
+
+/// Give each Files node without generated tags the tags its Models counterparts have in common:
+/// leaves match on their `f:` key first, then every node matches on its real paths.
+pub fn copy_tags(models: &Tree, files: &mut Tree) {
+    let mut by_key: HashMap<&str, Vec<&Vec<Tag>>> = HashMap::new();
+    let mut by_real: HashMap<String, Vec<&Vec<Tag>>> = HashMap::new();
+    for n in models.nodes.iter().skip(1) {
+        if n.key.starts_with("f:") {
+            by_key.entry(n.key.as_str()).or_default().push(&n.info.tags);
+        }
+        for k in tag_keys(n) {
+            by_real.entry(k).or_default().push(&n.info.tags);
+        }
+    }
+    for n in files.nodes.iter_mut().skip(1) {
+        if !n.info.tags.is_empty() {
+            continue;
+        }
+        if let Some(sets) = by_key.get(n.key.as_str()) {
+            n.info.tags = common(sets);
+            continue;
+        }
+        let mut sets: Vec<&Vec<Tag>> = Vec::new();
+        for k in tag_keys(n) {
+            if let Some(found) = by_real.get(&k) {
+                sets.extend(found.iter().copied());
+            }
+        }
+        // a node reached through several of its paths counts once per path; the intersection is unchanged
+        n.info.tags = common(&sets);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

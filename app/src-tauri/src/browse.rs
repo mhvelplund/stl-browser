@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use stl_core::vtree::filter::Shown;
+use stl_core::vtree::tags::copy_tags;
 use stl_core::vtree::search::{Field, Matcher, Mode, search as vtree_search};
 use stl_core::vtree::{Counts, Node, NodeId, NodeKind, Tree, counts, is_file_kind};
 use stl_thumb::{ThumbKind, thumb_kind};
@@ -47,7 +48,10 @@ impl Views {
 }
 
 pub fn build_views(conn: &Connection) -> Result<Views, IndexError> {
-    Ok(Views { models: ViewTree::new(models_view(conn)?), files: ViewTree::new(files_view(conn)?) })
+    let models = models_view(conn)?;
+    let mut files = files_view(conn)?;
+    copy_tags(&models, &mut files);
+    Ok(Views { models: ViewTree::new(models), files: ViewTree::new(files) })
 }
 
 #[derive(Debug, Clone, Serialize)]

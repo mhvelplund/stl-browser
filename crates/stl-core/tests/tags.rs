@@ -96,3 +96,43 @@ fn merged_node_reads_the_union() {
     let u = UserTags { set, hidden: HashMap::new() };
     assert_eq!(u.effective(&n), vec![tag(TagKind::User, "alpha", true), tag(TagKind::User, "beta", true)]);
 }
+
+fn tree_with(real: &str, key: &str, kind: NodeKind, tags: Vec<Tag>) -> Tree {
+    let mut t = Tree::new();
+    let id = t.add(0, "x", kind);
+    t.nodes[id].real = vec![real.to_string()];
+    t.nodes[id].key = key.to_string();
+    t.nodes[id].info.tags = tags;
+    t
+}
+
+#[test]
+fn copy_tags_by_real_path_and_key() {
+    let sup = vec![tag(TagKind::Support, "supported", false)];
+    let models = tree_with(r"D:\M\Orc", "m:c/orc", NodeKind::Model, sup.clone());
+    let mut files = tree_with(r"d:\m\orc\", "f:folder", NodeKind::Folder, vec![]);
+    copy_tags(&models, &mut files);
+    assert_eq!(files.nodes[1].info.tags, sup);
+
+    let leaf = vec![tag(TagKind::Scale, "25mm", false)];
+    let models = tree_with(r"D:.zip!x.stl", "f:k1", NodeKind::File, leaf.clone());
+    let mut files = tree_with(r"D:\other.zip!y.stl", "f:k1", NodeKind::File, vec![]);
+    copy_tags(&models, &mut files);
+    assert_eq!(files.nodes[1].info.tags, leaf);
+}
+
+#[test]
+fn copy_tags_takes_the_common_tags() {
+    let mut models = Tree::new();
+    for (name, tags) in [
+        ("a", vec![tag(TagKind::Support, "supported", false), tag(TagKind::Scale, "25mm", false)]),
+        ("b", vec![tag(TagKind::Scale, "25mm", false)]),
+    ] {
+        let id = models.add(0, name, NodeKind::Model);
+        models.nodes[id].real = vec![r"D:\M\Orc".to_string()];
+        models.nodes[id].info.tags = tags;
+    }
+    let mut files = tree_with(r"d:\m\orc", "f:folder", NodeKind::Folder, vec![]);
+    copy_tags(&models, &mut files);
+    assert_eq!(files.nodes[1].info.tags, vec![tag(TagKind::Scale, "25mm", false)]);
+}
