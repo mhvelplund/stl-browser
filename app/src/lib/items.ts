@@ -1,5 +1,5 @@
 // Tile and folder captions.
-import type { Item, Listing, View } from "./api.ts";
+import type { Item, Listing, Target, View } from "./api.ts";
 
 const n = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
@@ -28,4 +28,11 @@ export function folderSummary(l: Listing, view: View): string {
     return `${models}${n(l.images, "image")} · ${n(l.files, "file")}`;
   }
   return `${n(l.items.length, "item")} · ${n(l.files, "file")}`;
+}
+
+/** What a drag or Extract to… of `items` sends: every item, locked ones too (they come back
+ * counted as left out), or nothing when all are locked. */
+export function exportTargets<T extends { name: string; kind: string }>(items: T[], pathOf: (i: T) => string[]): Target[] {
+  if (items.every((i) => i.kind === "locked")) return [];
+  return items.map((i) => ({ path: pathOf(i), name: i.name }));
 }

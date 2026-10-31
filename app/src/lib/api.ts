@@ -143,9 +143,21 @@ export const unhideTag = (view: View, path: string[], name: string, kind: TagKin
   invoke<void>("unhide_tag", { view, path, name, kind, tag });
 export const allTags = () => invoke<Tag[]>("all_tags");
 
-export const beginDrag = (view: View, path: string[], names: string[]) => invoke<DragInfo>("begin_drag", { view, path, names });
-export const extractTo = (view: View, path: string[], names: string[], dest: string) =>
-  invoke<void>("extract_to", { view, path, names, dest });
+/** An item: `name` in the folder at `path` (`name === ""` is that folder). */
+export type Target = { path: string[]; name: string };
+
+/** One target's tags for the multi-item panel; `covered`: not editable, but its owner is a target too. */
+export type TargetTags = { own: Tag[]; hidden: Tag[]; editable: boolean; covered: boolean };
+export type EditOp = "add" | "remove" | "fill";
+/** `changed`: targets written; `skipped`: targets that can't be tagged (not counting covered ones). */
+export type EditResult = { changed: number; skipped: number };
+
+export const nodesTags = (view: View, targets: Target[]) => invoke<TargetTags[]>("nodes_tags", { view, targets });
+export const editTags = (view: View, targets: Target[], op: EditOp, kind: TagKind, tag: string) =>
+  invoke<EditResult>("edit_tags", { view, targets, op, kind, tag });
+
+export const beginDrag = (view: View, targets: Target[]) => invoke<DragInfo>("begin_drag", { view, targets });
+export const extractTo = (view: View, targets: Target[], dest: string) => invoke<void>("extract_to", { view, targets, dest });
 
 export const onIndexProgress = (cb: (p: IndexProgress) => void): Promise<UnlistenFn> =>
   listen<IndexProgress>("index-progress", (e) => cb(e.payload));

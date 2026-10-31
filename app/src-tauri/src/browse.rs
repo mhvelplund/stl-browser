@@ -118,6 +118,14 @@ pub struct NodeTags {
     pub owner: Option<Owner>,
 }
 
+/// An item the UI points at: `name` in the folder at `path` (`name == ""` is that folder).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Target {
+    pub path: Vec<String>,
+    pub name: String,
+}
+
 /// A node by its name and the path of the folder that lists it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1089,5 +1097,151 @@ mod tests {
         assert_eq!(v["hits"][0]["parent"], serde_json::json!(["vol", "coll", "orc"]));
         assert_eq!(v["hits"][0]["marks"], serde_json::json!([[0, 7]]));
         assert_eq!(serde_json::from_str::<SearchMode>("\"regexp\"").unwrap(), SearchMode::Regexp);
+    }
+
+    // ---- bulk tags (multi-select) ----
+
+    use crate::commands::{EditOp, EditResult, edit_tags_impl, nodes_tags_impl};
+
+    fn tgt(path: &[&str], name: &str) -> Target {
+        Target { path: segs(path), name: name.into() }
+    }
+
+    fn orc_elf() -> Vec<Target> {
+        vec![tgt(&["vol", "coll"], "orc"), tgt(&["vol", "coll"], "elf")]
+    }
+
+    fn has(tags: &[TagView], kind: &str, name: &str) -> bool {
+        tags.iter().any(|t| t.kind == kind && t.name == name)
+    }
+
+    fn reindex(state: &AppState) {
+        let (done, views) = crate::indexer::run_index(&state.db_path(), None, &Default::default(), &mut |_| {});
+        assert!(done.ok, "{:?}", done.error);
+        state.set_views(views.unwrap());
+    }
+
+    /// Adds the model `gob` with a single `Supported` variant: a generated `support:supported`.
+    fn with_gob(dir: &std::path::Path, state: &AppState) -> Target {
+        let p = dir.join("lib/Vol/Coll/Gob/Supported/gob.stl");
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, b"g").unwrap();
+        reindex(state);
+        let gob = tgt(&["vol", "coll"], "gob");
+        let n = &nodes_tags_impl(state, View::Models, vec![gob.clone()]).unwrap()[0];
+        assert!(n.own.iter().any(|t| t.kind == "support" && t.name == "supported" && !t.by_user), "{:?}", n.own);
+        gob
+    }
+
+    fn edit(state: &AppState, targets: Vec<Target>, op: EditOp, kind: &str, name: &str) -> EditResult {
+        edit_tags_impl(state, View::Models, targets, op, kind.into(), name.into()).unwrap()
+    }
+
+    #[test]
+    fn nodes_tags_reports_each_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "wip");
+        let n = nodes_tags_impl(&state, View::Models, orc_elf()).unwrap();
+        assert_eq!(n.len(), 2);
+        assert!(has(&n[0].own, "user", "wip"));
+        assert!(!has(&n[1].own, "user", "wip"));
+        assert!(n.iter().all(|t| t.editable && !t.covered));
+    }
+
+    #[test]
+    fn edit_tags_add_tags_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        assert_eq!(edit(&state, orc_elf(), EditOp::Add, "user", "Paint"), EditResult { changed: 2, skipped: 0 });
+        let n = nodes_tags_impl(&state, View::Models, orc_elf()).unwrap();
+        assert!(n.iter().all(|t| has(&t.own, "user", "paint")));
+    }
+
+    #[test]
+    fn edit_tags_fill_adds_where_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "wip");
+        assert_eq!(edit(&state, orc_elf(), EditOp::Fill, "user", "wip").changed, 1);
+        let n = nodes_tags_impl(&state, View::Models, orc_elf()).unwrap();
+        assert!(n.iter().all(|t| has(&t.own, "user", "wip")));
+    }
+
+    #[test]
+    fn edit_tags_remove_only_where_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "wip");
+        assert_eq!(edit(&state, orc_elf(), EditOp::Remove, "user", "wip").changed, 1);
+        let n = nodes_tags_impl(&state, View::Models, orc_elf()).unwrap();
+        assert!(n.iter().all(|t| !has(&t.own, "user", "wip")));
+        assert!(n.iter().all(|t| t.hidden.is_empty()));
+    }
+
+    #[test]
+    fn edit_tags_remove_clears_set_and_generated() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let gob = with_gob(dir.path(), &state);
+        tag(&state, View::Models, &["vol", "coll"], "gob", "support", "supported");
+        let targets = vec![gob.clone(), tgt(&["vol", "coll"], "orc")];
+        assert_eq!(edit(&state, targets, EditOp::Remove, "support", "supported").changed, 1);
+        let n = &nodes_tags_impl(&state, View::Models, vec![gob]).unwrap()[0];
+        assert!(!has(&n.own, "support", "supported"), "{:?}", n.own);
+        assert!(has(&n.hidden, "support", "supported"), "{:?}", n.hidden);
+    }
+
+    #[test]
+    fn edit_tags_remove_skips_an_overridden_generated_tag() {
+        // gob shows the user's `unsupported`, not its generated `supported`: × on a faded
+        // `supported` must leave gob alone
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let gob = with_gob(dir.path(), &state);
+        tag(&state, View::Models, &["vol", "coll"], "gob", "support", "unsupported");
+        assert_eq!(edit(&state, vec![gob.clone()], EditOp::Remove, "support", "supported").changed, 0);
+        let n = &nodes_tags_impl(&state, View::Models, vec![gob]).unwrap()[0];
+        assert!(n.hidden.is_empty(), "{:?}", n.hidden);
+    }
+
+    #[test]
+    fn edit_tags_fill_unhides() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let gob = with_gob(dir.path(), &state);
+        crate::commands::hide_tag_impl(&state, View::Models, segs(&["vol", "coll"]), "gob".into(), "support".into(), "supported".into()).unwrap();
+        assert_eq!(edit(&state, vec![gob.clone()], EditOp::Fill, "support", "supported").changed, 1);
+        let n = &nodes_tags_impl(&state, View::Models, vec![gob]).unwrap()[0];
+        assert!(n.own.iter().any(|t| t.kind == "support" && t.name == "supported" && !t.by_user), "{:?}", n.own);
+        assert!(n.hidden.is_empty());
+    }
+
+    #[test]
+    fn edit_tags_skips_shadowed() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        std::fs::write(dir.path().join("lib/Vol/Coll/Orc/orc2.png"), crate::testutil::TINY_PNG).unwrap();
+        reindex(&state);
+        let images = tgt(&["vol", "coll", "orc"], "images");
+        let elf = tgt(&["vol", "coll"], "elf");
+        let orc = tgt(&["vol", "coll"], "orc");
+        assert_eq!(edit(&state, vec![images.clone(), elf.clone()], EditOp::Add, "user", "x"), EditResult { changed: 1, skipped: 1 });
+        let all = vec![images.clone(), elf, orc];
+        assert_eq!(edit(&state, all.clone(), EditOp::Add, "user", "y"), EditResult { changed: 2, skipped: 0 });
+        let n = nodes_tags_impl(&state, View::Models, all).unwrap();
+        assert!(!n[0].editable && n[0].covered);
+        let n = nodes_tags_impl(&state, View::Models, vec![images]).unwrap();
+        assert!(!n[0].editable && !n[0].covered);
+    }
+
+    #[test]
+    fn edit_tags_refuses_edition() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        assert!(edit_tags_impl(&state, View::Models, orc_elf(), EditOp::Add, "edition".into(), "x".into()).is_err());
+        assert!(edit_tags_impl(&state, View::Models, orc_elf(), EditOp::Fill, "edition".into(), "x".into()).is_err());
+        let n = nodes_tags_impl(&state, View::Models, orc_elf()).unwrap();
+        assert!(n.iter().all(|t| !has(&t.own, "edition", "x")));
     }
 }

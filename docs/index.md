@@ -36,6 +36,7 @@ anything out to Explorer to extract it.
 | 7. Search: name search with Free/Word/Regexp, scoped to the open folder                        | done                                          |
 | 7.5. Follow-ups: view toggle button, shown file endings (`config.yaml`), tile search results   | done                                          |
 | 8. Tags: user and generated tags, dots and pills on tiles, a side panel, `tag:` search         | done                                          |
+| 9. Multi-select: click, Ctrl/Shift-click, rubber band; bulk tags, drag and extract of several | done                                          |
 
 Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and 18,050
 files (1,243 of them in nested archives) with 0 errors, the same as the prototype. It takes about 35 s, and a rescan of
@@ -141,7 +142,8 @@ Two smaller modules came with milestone 6:
 
 ### Drag-out and Extract to… (milestone 6)
 
-- **Gesture:** pressing a tile and moving 6 px with the primary button held calls `begin_drag(view, path, [name])`.
+- **Gesture:** pressing a tile and moving 6 px with the primary button held calls `begin_drag(view, targets)` with
+  the selection (milestone 9), or just that tile when it isn't selected.
   - Rust builds the export plan, locates every file (source, chain, size) and prepares the data object.
   - It then runs `DoDragDrop` on the main thread through `run_on_main_thread`.
   - If the button is already up by then, no drag starts.
@@ -270,6 +272,27 @@ Design: [`superpowers/specs/2026-10-31-tags-design.md`](superpowers/specs/2026-1
   hover), `TagPanel.svelte` (the toolbar's tag button, remembered in `localStorage`), `tags.ts` (dot order, grouping,
   suggestions) and the `--tag-*` colour tokens in `theme.css`.
 
+### Multi-select (milestone 9)
+
+Design: [`superpowers/specs/2026-10-31-multi-select-design.md`](superpowers/specs/2026-10-31-multi-select-design.md).
+
+- **Gestures** (tile grid, grid results and the result list): click selects one; Ctrl-click toggles; Shift-click
+  selects the range from the anchor; Ctrl+Shift-click adds it. Pressing on empty space and dragging draws a rubber band
+  (Ctrl adds to the selection); a click on empty space clears it. Ctrl+A selects everything shown, Esc clears. The band
+  is hit-tested from the grid geometry (`band.ts`), so rows scrolled past count; it auto-scrolls near the edges
+  (`bandgesture.ts`). In the result list a band starts only off the rows.
+- **Lifetime:** navigation, a view switch and a new query clear the selection. The refresh after a tag edit or an
+  index run keeps it, minus items that are gone. `selection.ts` holds the model.
+- **Drag and Extract to…** take `targets: { path, name }[]`, so search hits from many folders go together. A target
+  inside another target is dropped; clashing top-level names get the export plan's postfix. Dragging an unselected item
+  drags only it. With several selected, the menu offers only **Extract to…**.
+- **Bulk tags:** `nodes_tags(view, targets)` gives each target's own and hidden tags plus `editable` / `covered`;
+  `edit_tags(view, targets, op, kind, tag)` with `op` = `add`, `remove` (delete the user-set value and hide the
+  generated one, where present) or `fill` (to the items lacking it: unhide where hidden, else add). The panel
+  (`mergeTags` in `tags.ts`) shows tags all items have as solid pills and the rest faded with `k of N`; clicking a
+  faded pill fills it, × removes it everywhere. Shadowed items are skipped and counted, unless their owner is selected
+  too. "From folders above" and "Hidden" show only for a single item.
+
 ## Decisions
 
 ### Made by you
@@ -345,7 +368,7 @@ Design: [`superpowers/specs/2026-10-31-tags-design.md`](superpowers/specs/2026-1
   - **A value the user sets overrides everything below it** in search. A model set to `32mm` means `tag:25mm` no longer
     finds its variants or files. It also overrides the generated value of its kind from above: a variant set to `32mm`
     in a `25mm` model drops out of `tag:25mm`, with everything below it.
-  - **Editing is in a side panel** for the selected tile, one at a time.
+  - **Editing is in a side panel** for the selection: one item as before, or several at once (milestone 9).
 
 ### Made by me (correct any that are wrong)
 

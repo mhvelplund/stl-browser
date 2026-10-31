@@ -3,6 +3,7 @@
   import type { Item, View } from "./api";
   import { slots, step } from "./carousel";
   import { press, shouldStart, type Press } from "./dragstart";
+  import { mods, NONE, type Mods } from "./selection";
   import { subtitle } from "./items";
   import { runs } from "./search";
   import TagDots from "./TagDots.svelte";
@@ -32,7 +33,8 @@
     /** The slot shown now. */
     slot: number;
     urls: SvelteMap<number, string | null>;
-    onSelect: (i: Item) => void;
+    /** A click, with Ctrl (or Cmd) and Shift. */
+    onSelect: (i: Item, mods: Mods) => void;
     /** Double-click or Enter: a folder opens in the grid, a file in its Windows app. */
     onOpen: (i: Item) => void;
     onSlot: (i: Item, slot: number) => void;
@@ -52,7 +54,6 @@
 
   function contextMenu(e: MouseEvent) {
     e.preventDefault();
-    onSelect(item);
     onMenu(item, e.clientX, e.clientY);
   }
 
@@ -62,7 +63,7 @@
   function key(e: KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault();
-      onSelect(item);
+      onSelect(item, NONE);
       onOpen(item);
     }
   }
@@ -80,7 +81,7 @@
     aria-label={item.name + (item.openable ? ", folder" : "")}
     aria-pressed={selected}
     title={item.real.join("\n")}
-    onclick={() => onSelect(item)}
+    onclick={(e) => onSelect(item, mods(e))}
     ondblclick={() => onOpen(item)}
     onkeydown={key}
     onpointerdown={(e) => (pressed = press({ button: e.button, x: e.clientX, y: e.clientY, pointerId: e.pointerId }))}

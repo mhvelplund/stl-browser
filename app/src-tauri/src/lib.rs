@@ -72,6 +72,8 @@ pub fn run() {
             commands::remove_tag,
             commands::hide_tag,
             commands::unhide_tag,
+            commands::nodes_tags,
+            commands::edit_tags,
             commands::all_tags,
             commands::request_thumbs,
             export::begin_drag,

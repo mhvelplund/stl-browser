@@ -6,17 +6,28 @@
     removable = false,
     disabled = false,
     onremove,
+    faded = false,
+    count,
+    onpick,
   }: {
     tag: Tag;
     removable?: boolean;
     /** Show the × but don't let it remove. */
     disabled?: boolean;
     onremove?: (t: Tag) => void;
+    /** Only some of the selected items have it. */
+    faded?: boolean;
+    /** Tooltip, e.g. "2 of 5". */
+    count?: string;
+    /** A click on the name (a faded pill: give it to the rest). */
+    onpick?: (t: Tag) => void;
   } = $props();
 </script>
 
-<span class="pill {tag.kind}">
-  <span class="text">{tag.name}</span>{#if tag.byUser && tag.kind !== "user"}<span class="by" title="Set by you" aria-label="set by you">✎</span>{/if}{#if removable}<button
+<span class="pill {tag.kind}" class:faded title={count}>
+  {#if onpick}<button type="button" class="text pick" {disabled} title={count ? `${count} · add to all` : "Add to all"} onclick={() => onpick(tag)}
+      >{tag.name}</button
+    >{:else}<span class="text">{tag.name}</span>{/if}{#if tag.byUser && tag.kind !== "user"}<span class="by" title="Set by you" aria-label="set by you">✎</span>{/if}{#if removable}<button
       type="button"
       class="x"
       {disabled}
@@ -43,6 +54,23 @@
   .text {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .faded {
+    opacity: 0.45;
+  }
+  .faded:hover {
+    opacity: 0.7;
+  }
+  .pick {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .pick:disabled {
+    cursor: default;
   }
   .user {
     background: var(--tag-user);

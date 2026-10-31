@@ -4,14 +4,15 @@
   import { SvelteMap } from "svelte/reactivity";
   import { open as pickFolder } from "@tauri-apps/plugin-dialog";
   import * as api from "#lib/api.ts";
-  import type { ExtractProgress, Found, Hit, IndexDone, IndexProgress, Item, Listing, SearchMode, Status, View } from "#lib/api.ts";
+  import type { ExtractProgress, Found, Hit, IndexDone, IndexProgress, Item, Listing, SearchMode, Status, Target, View } from "#lib/api.ts";
   import ContextMenu, { type Entry } from "#lib/ContextMenu.svelte";
   import { extractHint } from "#lib/extractrun.ts";
   import { requests, slotKey, slots } from "#lib/carousel.ts";
   import { idle, step, type Run, type RunEvent } from "#lib/indexrun.ts";
-  import { folderSummary } from "#lib/items.ts";
+  import { exportTargets as targetsOf, folderSummary } from "#lib/items.ts";
   import { hitId, whereShort } from "#lib/search.ts";
   import { goBack, goTo, open, settle, start, up, type Nav } from "#lib/nav.ts";
+  import { all, band, click, empty, focus, NONE, prune, sameIds, type Mods, type Selection } from "#lib/selection.ts";
   import ResultList from "#lib/ResultList.svelte";
   import SearchBar from "#lib/SearchBar.svelte";
   import StatusBar from "#lib/StatusBar.svelte";
@@ -22,7 +23,8 @@
   let view = $state<View>("models");
   let nav = $state<Nav>(start());
   let listing = $state<Listing | null>(null);
-  let selected = $state<string | null>(null);
+  /** The selected tiles of the listing, by name. */
+  let sel = $state<Selection>(empty);
   let status = $state<Status | null>(null);
   let progress = $state<IndexProgress | null>(null);
   let run = $state<Run>(idle);
@@ -54,7 +56,10 @@
   let scope = $state<string[]>([]);
   let found = $state<Found | null>(null);
   let searchError = $state("");
-  let selectedHit = $state<Hit | null>(null);
+  /** The selected search hits, by `hitId`. */
+  let hitSel = $state<Selection>(empty);
+  /** The selection a rubber band started from (Ctrl adds the band to it). */
+  let bandBase: Selection = empty;
   /** Results as the compact list instead of tiles; remembered in this browser. */
   let asList = $state(readAsList());
   let searchSeq = 0;
@@ -137,7 +142,7 @@
       listing = l;
       chosen.clear();
       askThumbs();
-      if (!keepSelection || !l.items.some((i) => i.name === selected)) selected = null;
+      sel = keepSelection ? prune(sel, l.items.map((i) => i.name)) : empty;
       restore = scrollTo;
       scroll = scrollTo;
       error = "";
@@ -166,11 +171,12 @@
     query = "";
     found = null;
     searchError = "";
-    selectedHit = null;
+    hitSel = empty;
   }
 
-  /** Search the scope for the query (debounced); a stale reply (the user typed on) is dropped. */
-  function runSearch() {
+  /** Search the scope for the query (debounced); a stale reply (the user typed on) is dropped.
+   * `keep`: a refresh (after an edit or an index run) keeps the selected hits that are still found. */
+  function runSearch(keep = false) {
     clearTimeout(searchTimer);
     const my = ++searchSeq;
     if (!query) {
@@ -185,8 +191,7 @@
         found = f;
         scope = f.path;
         searchError = "";
-        const was = selectedHit && hitId(selectedHit);
-        selectedHit = f.hits.find((h) => hitId(h) === was) ?? null;
+        hitSel = keep ? prune(hitSel, f.hits.map(hitId)) : empty;
         askThumbs();
       } catch (e) {
         if (my !== searchSeq) return;
@@ -221,7 +226,7 @@
   /** Go to the folder at `path` with its tile `name` selected and scrolled into view. */
   function showIn(path: string[], name: string) {
     leaveSearch();
-    selected = name;
+    sel = click(empty, name, [], NONE);
     load(goTo(nav, path, scroll), 0, true, name);
   }
 
@@ -231,8 +236,8 @@
     else if (h.kind !== "locked") launch(h, h.parent);
   }
 
-  function selectHit(h: Hit) {
-    selectedHit = h;
+  function selectHit(h: Hit, mods: Mods) {
+    hitSel = click(hitSel, hitId(h), hitOrder, mods);
     notice = "";
   }
 
@@ -335,55 +340,93 @@
     }
   }
 
-  function select(i: Item) {
-    selected = i.name;
+  function select(i: Item, mods: Mods) {
+    sel = click(sel, i.name, order, mods);
     notice = "";
   }
 
-  /** Drag a tile out to Explorer: Rust runs the OLE drag on the main thread. */
-  async function dragOut(item: Item) {
-    select(item);
-    await dragFrom(nav.path, item.name);
+  /** A rubber band in the grid or the list: `fresh` marks its start. */
+  function bandSelect(ids: string[], ctrl: boolean, fresh: boolean) {
+    // only a change re-renders (and reloads the tag panel)
+    if (showingResults) {
+      if (fresh) bandBase = hitSel;
+      const next = band(bandBase, ids, ctrl);
+      if (!sameIds(next, hitSel)) hitSel = next;
+    } else {
+      if (fresh) bandBase = sel;
+      const next = band(bandBase, ids, ctrl);
+      if (!sameIds(next, sel)) sel = next;
+    }
+    notice = "";
+  }
+
+  function clearSelection() {
+    if (showingResults) hitSel = empty;
+    else sel = empty;
+  }
+
+  /** The selected tiles (or hits) to drag or extract. */
+  function exportTargets(): Target[] {
+    return showingResults ? targetsOf(selectedHits, (h) => h.parent) : targetsOf(selectedItems, () => nav.path);
+  }
+
+  /** Drag a tile out to Explorer, with the rest of the selection when it is selected: Rust runs
+   * the OLE drag on the main thread. */
+  function dragOut(item: Item) {
+    sel = focus(sel, item.name);
+    dragTargets(exportTargets());
   }
 
   function dragHit(h: Hit) {
-    selectHit(h);
-    dragFrom(h.parent, h.name);
+    hitSel = focus(hitSel, hitId(h));
+    dragTargets(exportTargets());
   }
 
-  async function dragFrom(path: string[], name: string) {
+  async function dragTargets(targets: Target[]) {
+    if (!targets.length) return;
     try {
-      const info = await api.beginDrag(view, path, [name]);
+      const info = await api.beginDrag(view, targets);
       if (info.skipped) notice = `${info.skipped} item${info.skipped === 1 ? "" : "s"} left out of the drag (locked, or path too long)`;
     } catch (e) {
       notice = `Could not drag: ${e}`;
     }
   }
 
-  async function extract(item: { name: string }, path = nav.path) {
+  async function extract(targets: Target[]) {
+    if (!targets.length) return;
+    const label = targets.length === 1 ? targets[0].name : `${targets.length} items`;
     let dest: string | string[] | null;
     try {
-      dest = await pickFolder({ directory: true, multiple: false, title: `Extract ${item.name} to` });
+      dest = await pickFolder({ directory: true, multiple: false, title: `Extract ${label} to` });
     } catch (e) {
       notice = `Could not open the folder picker: ${e}`;
       return;
     }
     if (typeof dest !== "string") return;
     try {
-      extracting = { index: 0, total: 0, name: item.name };
-      await api.extractTo(view, path, [item.name], dest);
+      extracting = { index: 0, total: 0, name: label };
+      await api.extractTo(view, targets, dest);
     } catch (e) {
       extracting = null;
       notice = `Could not extract: ${e}`;
     }
   }
 
-  /** The right-click menu of a tile, or of a search hit (which offers only Open and Extract). */
+  /** The right-click menu of a tile, or of a search hit (which offers only Open and Extract).
+   * On a selection of several, only Extract to… (of them all). */
   function showMenu(item: Item | Hit, x: number, y: number) {
     const entries: Entry[] = [];
     const hit = "parent" in item ? item : null;
+    if (hit) hitSel = focus(hitSel, hitId(hit));
+    else sel = focus(sel, item.name);
+    notice = "";
+    const targets = exportTargets();
+    if (selectedCount > 1) {
+      menu = targets.length ? { x, y, entries: [{ label: "Extract to…", action: () => extract(targets) }] } : null;
+      return;
+    }
     if (item.kind !== "locked") entries.push({ label: "Open", action: () => (hit ? launchHit(hit) : openItem(item as Item)) });
-    if (item.kind !== "locked") entries.push({ label: "Extract to…", action: () => extract(item, hit?.parent) });
+    if (item.kind !== "locked") entries.push({ label: "Extract to…", action: () => extract(targets) });
     if (hit) {
       menu = entries.length ? { x, y, entries } : null;
       return;
@@ -402,13 +445,20 @@
     urls.clear(); // entry ids change when sources are re-listed
     refreshStatus();
     load(nav, scroll, true);
-    if (searching) runSearch(); // the tree changed
+    if (searching) runSearch(true); // the tree changed
   }
 
   function onKey(e: KeyboardEvent) {
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-    if ((e.key === "Backspace" && !e.altKey) || (e.altKey && e.key === "ArrowUp")) {
+    if (e.defaultPrevented) return; // the menu took its Escape
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      if (showingResults) hitSel = all(hitOrder);
+      else sel = all(order);
+    } else if (e.key === "Escape") {
+      clearSelection();
+    } else if ((e.key === "Backspace" && !e.altKey) || (e.altKey && e.key === "ArrowUp")) {
       e.preventDefault();
       goUp();
     } else if (e.altKey && e.key === "ArrowLeft") {
@@ -430,14 +480,25 @@
   const stop = (call: () => Promise<void>) => () =>
     call().catch((e) => (notice = `Could not stop: ${e}`));
 
-  const selectedItem = $derived(listing?.items.find((i) => i.name === selected) ?? null);
   const showingResults = $derived(searching && query !== "");
+  /** Display orders, for Shift ranges and Ctrl+A. */
+  const order = $derived(listing?.items.map((i) => i.name) ?? []);
+  const hitOrder = $derived(found?.hits.map(hitId) ?? []);
+  const selectedItems = $derived(listing?.items.filter((i) => sel.ids.has(i.name)) ?? []);
+  const selectedHits = $derived(found?.hits.filter((h) => hitSel.ids.has(hitId(h))) ?? []);
+  const selectedCount = $derived(showingResults ? selectedHits.length : selectedItems.length);
+  const selectedItem = $derived(selectedItems.length === 1 ? selectedItems[0] : null);
+  const selectedHit = $derived(selectedHits.length === 1 ? selectedHits[0] : null);
   const shownReal = $derived(showingResults ? selectedHit?.real : selectedItem?.real);
   /** What the tag panel edits: the selected hit or item, else the open folder (nothing in results without a selection). */
   const tagTarget = $derived.by(() => {
     if (showingResults) return selectedHit ? { path: selectedHit.parent, name: selectedHit.name } : { path: [], name: "" };
     return { path: nav.path, name: selectedItem ? selectedItem.name : "" };
   });
+  /** What the tag panel edits when several are selected. */
+  const tagTargets = $derived<Target[]>(
+    showingResults ? selectedHits.map((h) => ({ path: h.parent, name: h.name })) : selectedItems.map((i) => ({ path: nav.path, name: i.name })),
+  );
   const tagTitle = $derived(
     showingResults ? (selectedHit?.name ?? "") : (selectedItem?.name ?? (listing?.name || "Library")),
   );
@@ -445,10 +506,12 @@
   /** After a tag edit the listing and any open search show the new tags. */
   function tagsChanged() {
     load(nav, scroll, true);
-    if (searching) runSearch();
+    if (searching) runSearch(true);
   }
 
-  const footerHint = $derived(notice || (shownReal ? shownReal.join(" | ") : run.hint || usage));
+  const footerHint = $derived(
+    notice || (selectedCount > 1 ? `${selectedCount} selected` : shownReal ? shownReal.join(" | ") : run.hint || usage),
+  );
   const noRoots = $derived(status !== null && status.roots.length === 0);
 
   onMount(() => {
@@ -513,11 +576,13 @@
             items={found.hits}
             {view}
             idOf={hitId}
-            selected={selectedHit ? hitId(selectedHit) : null}
+            selected={hitSel.ids}
             scroll={0}
             captionOf={(h) => whereShort(h.parent, scope)}
             marksOf={(h) => h.marks}
             onSelect={selectHit}
+            onBand={bandSelect}
+            onClear={clearSelection}
             onOpen={openHit}
             onScroll={() => (menu = null)}
             onDragOut={dragHit}
@@ -534,8 +599,10 @@
           <ResultList
             hits={found.hits}
             {scope}
-            selected={selectedHit ? hitId(selectedHit) : null}
+            selected={hitSel.ids}
             onSelect={selectHit}
+            onBand={bandSelect}
+            onClear={clearSelection}
             onOpen={openHit}
             onDragOut={dragHit}
             onMenu={showMenu}
@@ -560,10 +627,12 @@
           <TileGrid
             items={listing.items}
             {view}
-            {selected}
+            selected={sel.ids}
             scroll={restore}
             {reveal}
             onSelect={select}
+            onBand={bandSelect}
+            onClear={clearSelection}
             onOpen={openItem}
             onScroll={(t) => {
               scroll = t;
@@ -591,6 +660,7 @@
           path={tagTarget.path}
           name={tagTarget.name}
           title={tagTitle}
+          targets={tagTargets}
           onchange={tagsChanged}
           onerror={(m) => (notice = m)}
           onowner={(o) => showIn(o.path, o.name)}
