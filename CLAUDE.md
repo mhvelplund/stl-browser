@@ -43,7 +43,8 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
 
 - `crates/stl-core`: pure logic, no I/O. `names.rs` (file kinds, name heuristics); `resolve/` (the model resolver, a
   faithful port of the prototype: physical/logical trees, model detection, asset attachment, unit collapse);
-  `vtree/` (the tree type, naming rules and hover paths, `models.rs` and `files.rs` view builders fed by row structs).
+  `vtree/` (the tree type, naming rules and hover paths, `models.rs` and `files.rs` view builders fed by row structs,
+  `search.rs`, and `filter.rs` with the shown file endings).
 - `crates/stl-scan`: archive access. `archive.rs` puts ZIP/7Z/RAR behind one `Archive` trait (`open`); `nested.rs` lists
   archives recursively (max 3 deep, >256 MiB or anything nested in a RAR spills to a temp file); `extract.rs` re-opens a
   file by its `chain` of archive members; `discover.rs` walks a root and emits one source per archive plus one per
@@ -57,7 +58,8 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
   - `prepare` creates the object in the MTA. `run_drag` runs `DoDragDrop` on the STA with a marshaled proxy, so
     Explorer's calls never block the UI thread.
   - `tests/drop.rs` drops on the shell's own drop target for a temp folder, so no mouse is needed.
-- `crates/stl-index`: `~/.stl-browser/index.db` (SQLite, WAL). `db.rs` holds schema + migrations; `scanstore.rs` holds
+- `crates/stl-index`: `~/.stl-browser/index.db` (SQLite, WAL). `config.rs` reads `~/.stl-browser/config.yaml`
+  (`shown_extensions`, once at startup); `db.rs` holds schema + migrations; `scanstore.rs` holds
   `add_root` / `scan_root` (incremental rescan by size, mtime and folder file-name fingerprint; errored sources retried;
   vanished sources deleted; a root inside another root is skipped); `resolvestore.rs` holds `index_all` (scan, then
   re-resolve changed collections per (root, collection)); `views.rs` loads rows and builds both views (inner roots

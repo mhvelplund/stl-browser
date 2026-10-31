@@ -24,3 +24,12 @@ export function visibleRows(
     last: clamp(Math.ceil((top + viewport) / rowHeight) + overscan),
   };
 }
+
+/** The scroll position that shows tile `index` (rows of `rowHeight` below `pad`): `top` when its
+ * row is already in view (or there is no tile), else the row centred. */
+export function revealTop(index: number, cols: number, rowHeight: number, pad: number, viewport: number, top: number): number {
+  if (index < 0) return top;
+  const rowTop = pad + Math.floor(index / cols) * rowHeight;
+  if (rowTop >= top && rowTop + rowHeight <= top + viewport) return top;
+  return Math.max(0, rowTop - (viewport - rowHeight) / 2);
+}

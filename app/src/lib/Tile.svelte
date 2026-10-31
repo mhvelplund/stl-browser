@@ -4,6 +4,7 @@
   import { slots, step } from "./carousel";
   import { press, shouldStart, type Press } from "./dragstart";
   import { subtitle } from "./items";
+  import { runs } from "./search";
   import TileArt from "./TileArt.svelte";
 
   let {
@@ -17,8 +18,14 @@
     onSlot,
     onDragOut,
     onMenu,
+    caption,
+    marks,
   }: {
     item: Item;
+    /** Replaces the subtitle (a search hit shows where it is). */
+    caption?: string;
+    /** Name ranges to highlight (search matches). */
+    marks?: [number, number][];
     view: View;
     selected: boolean;
     /** The slot shown now. */
@@ -86,8 +93,8 @@
       {#if badge}<span class="badge">{badge}</span>{/if}
       {#if all.length > 1}<span class="count">{slot + 1} / {all.length}</span>{/if}
     </span>
-    <span class="name">{item.name}</span>
-    <span class="sub">{subtitle(item, view)}</span>
+    <span class="name">{#if marks}{#each runs(item.name, marks) as r, i (i)}{#if r.hit}<mark>{r.text}</mark>{:else}{r.text}{/if}{/each}{:else}{item.name}{/if}</span>
+    <span class="sub">{caption ?? subtitle(item, view)}</span>
   </button>
   {#if all.length > 1}
     <button type="button" class="arrow left" aria-label="Previous thumbnail" onclick={(e) => flip(e, -1)} ondblclick={(e) => e.stopPropagation()}>
@@ -214,5 +221,10 @@
   .sub {
     font-size: 12px;
     color: var(--muted);
+  }
+  mark {
+    background: transparent;
+    color: var(--accent);
+    font-weight: 600;
   }
 </style>

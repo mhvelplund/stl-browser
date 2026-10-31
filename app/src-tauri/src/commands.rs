@@ -40,7 +40,7 @@ pub fn app_info(state: tauri::State<'_, AppState>) -> Result<AppInfo, String> {
 pub fn list_folder_impl(state: &AppState, view: View, path: Vec<String>) -> Result<Listing, String> {
     let views = state.views()?;
     let selected = selected_thumbs(state)?;
-    Ok(browse::list(&views, view, &path, &selected))
+    Ok(browse::list(&views, view, &path, &selected, &state.shown))
 }
 
 /// Every saved carousel choice: node key → image key (`composite` or an `f:` entry key).
@@ -114,7 +114,9 @@ pub fn search_impl(
     case_sensitive: bool,
 ) -> Result<Found, String> {
     let views = state.views()?;
-    browse::search(&views, view, &path, &query, mode, case_sensitive)
+    let selected = selected_thumbs(state)?;
+    let q = browse::Query { text: &query, mode, case_sensitive };
+    browse::search(&views, view, &path, &q, &selected, &state.shown)
 }
 
 /// The folders and files below `path` whose names match `query` (at most `SEARCH_LIMIT`).
@@ -148,6 +150,8 @@ pub struct Status {
     /// Indexed files (entries).
     pub files: i64,
     pub indexing: bool,
+    /// Why `config.yaml` was ignored (the defaults apply), if it was.
+    pub config_warning: Option<String>,
 }
 
 fn root_info(id: i64, name: String, path: String) -> RootInfo {
@@ -167,6 +171,7 @@ pub fn status_impl(state: &AppState) -> Result<Status, String> {
             models: conn.query_row("SELECT count(*) FROM models", [], |r| r.get(0))?,
             files: conn.query_row("SELECT count(*) FROM entries", [], |r| r.get(0))?,
             indexing: state.is_indexing(),
+            config_warning: state.config_warning.clone(),
         })
     };
     q().map_err(|e| e.to_string())

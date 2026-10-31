@@ -1,4 +1,5 @@
 //! Index storage: the app data dir, the SQLite schema, settings and incremental scans.
+pub mod config;
 pub mod db;
 pub mod export;
 pub mod parity;

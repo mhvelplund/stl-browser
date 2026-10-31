@@ -4,7 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use rusqlite::Connection;
-use stl_index::db;
+use stl_core::vtree::filter::Shown;
+use stl_index::{config, db};
 
 use crate::browse::{Views, build_views};
 use crate::thumbs::ThumbService;
@@ -24,6 +25,10 @@ pub struct AppState {
     pub cancel_extract: Arc<AtomicBool>,
     /// Started at app setup (it needs the app handle for its events).
     pub thumbs: OnceLock<ThumbService>,
+    /// The file endings the views list, from `config.yaml` (read once, at startup).
+    pub shown: Shown,
+    /// Why `config.yaml` was ignored, if it was.
+    pub config_warning: Option<String>,
 }
 
 /// Held by the one running index (or extraction); clears its busy flag when dropped (also on
@@ -40,6 +45,7 @@ impl AppState {
     /// Open `<app_dir>/index.db`, migrating it if needed.
     pub fn open(app_dir: PathBuf) -> rusqlite::Result<Self> {
         let conn = db::open(&app_dir.join("index.db"))?;
+        let cfg = config::load_from(&app_dir);
         Ok(Self {
             db: Mutex::new(conn),
             app_dir,
@@ -49,6 +55,8 @@ impl AppState {
             cancel_index: Arc::default(),
             cancel_extract: Arc::default(),
             thumbs: OnceLock::new(),
+            shown: cfg.shown,
+            config_warning: cfg.warning,
         })
     }
 

@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hitId, runs, scopeLabel, where } from "./search.ts";
+import { hitId, runs, scopeLabel, where, whereShort } from "./search.ts";
+
+test("short where keeps the nearest folders", () => {
+  assert.equal(whereShort(["vol", "coll", "orc", "supported"], ["vol"]), "… › orc › supported");
+  assert.equal(whereShort(["vol", "coll", "orc"], ["vol"]), "coll › orc");
+  assert.equal(whereShort(["vol"], ["vol"]), "here");
+});
 
 test("runs split a name at its marks", () => {
   assert.deepEqual(runs("orc boss", [[0, 1], [4, 6]]), [

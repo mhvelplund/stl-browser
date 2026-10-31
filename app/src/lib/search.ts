@@ -20,6 +20,13 @@ export function runs(name: string, marks: [number, number][]): { text: string; h
 /** Where a hit lives, relative to the folder the search started in. */
 export const where = (parent: string[], scope: string[]): string => parent.slice(scope.length).join(" › ");
 
+/** `where` cut to the last two folders (a tile caption has room for little more). */
+export function whereShort(parent: string[], scope: string[]): string {
+  const rel = parent.slice(scope.length);
+  if (!rel.length) return "here";
+  return (rel.length > 2 ? "… › " : "") + rel.slice(-2).join(" › ");
+}
+
 export const scopeLabel = (scope: string[]): string => (scope.length ? `in ${scope.join(" › ")}` : "in Library");
 
 /** A hit's identity: its place in the tree (keys repeat, e.g. a volume's empty key or a shared picture). */

@@ -1,10 +1,10 @@
-<script lang="ts">
+<script lang="ts" generics="T extends Item">
   // A virtualized grid: only the rows in view (plus a few) are in the DOM.
   import { untrack } from "svelte";
   import type { SvelteMap } from "svelte/reactivity";
   import type { Item, View } from "./api";
   import { current } from "./carousel";
-  import { columns, tileWidth, visibleRows } from "./grid";
+  import { columns, revealTop, tileWidth, visibleRows } from "./grid";
   import Tile from "./Tile.svelte";
 
   let {
@@ -21,23 +21,36 @@
     onVisible,
     onDragOut,
     onMenu,
+    idOf = (i: T) => i.name,
+    captionOf,
+    marksOf,
+    reveal = null,
   }: {
-    items: Item[];
+    items: T[];
     view: View;
+    /** The selected tile's `idOf`. */
     selected: string | null;
     /** Scroll position to restore whenever `items` changes. */
     scroll: number;
-    onSelect: (i: Item) => void;
-    onOpen: (i: Item) => void;
+    onSelect: (i: T) => void;
+    onOpen: (i: T) => void;
     onScroll: (top: number) => void;
     urls: SvelteMap<number, string | null>;
     /** Slots picked this session, by item key. */
     chosen: SvelteMap<string, number>;
-    onSlot: (i: Item, slot: number) => void;
+    onSlot: (i: T, slot: number) => void;
     /** The item index range that is rendered, `[first, last)`. */
     onVisible: (r: { first: number; last: number }) => void;
-    onDragOut: (i: Item) => void;
-    onMenu: (i: Item, x: number, y: number) => void;
+    onDragOut: (i: T) => void;
+    onMenu: (i: T, x: number, y: number) => void;
+    /** A tile's identity among `items` (names repeat across search hits). */
+    idOf?: (i: T) => string;
+    /** Replaces a tile's subtitle. */
+    captionOf?: (i: T) => string;
+    /** Name ranges to highlight. */
+    marksOf?: (i: T) => [number, number][];
+    /** The `idOf` of a tile to scroll into view when `items` change (instead of `scroll`). */
+    reveal?: string | null;
   } = $props();
 
   const GAP = 8;
@@ -69,12 +82,30 @@
     onVisible({ first, last });
   });
 
+  /** A tile to scroll to once the grid has its size (a fresh object per listing, so the same
+   * id revealed twice still re-runs). */
+  let toReveal: { id: string } | null = $state(null);
+
   $effect(() => {
     items;
     untrack(() => {
       if (el) el.scrollTop = scroll;
       top = scroll;
+      toReveal = reveal ? { id: reveal } : null;
     });
+  });
+
+  // re-applied whenever the layout changes (a scrollbar appearing drops a column), until the
+  // user scrolls
+  $effect(() => {
+    if (!toReveal || !el || !width || !height) return;
+    const want = toReveal.id;
+    const index = untrack(() => items.findIndex((i) => idOf(i) === want));
+    const t = revealTop(index, cols, rowHeight, PAD, height, untrack(() => top));
+    if (t === untrack(() => top)) return;
+    el.scrollTop = t;
+    top = el.scrollTop; // the browser clamps it to the content
+    onScroll(top);
   });
 </script>
 
@@ -84,6 +115,8 @@
   bind:clientWidth={width}
   bind:clientHeight={height}
   onscroll={() => {
+    // a scroll that isn't the reveal's own is the user's: stop revealing
+    if (Math.abs(el!.scrollTop - top) > 1) toReveal = null;
     top = el!.scrollTop;
     onScroll(top);
   }}
@@ -96,8 +129,21 @@
         style:grid-template-columns="repeat({cols}, {tile}px)"
         style:height="{rowHeight - GAP}px"
       >
-        {#each row.tiles as item (item.name)}
-          <Tile {item} {view} selected={selected === item.name} slot={current(item, chosen)} {urls} {onSelect} {onOpen} {onSlot} {onDragOut} {onMenu} />
+        {#each row.tiles as item (idOf(item))}
+          <Tile
+            {item}
+            {view}
+            selected={selected === idOf(item)}
+            slot={current(item, chosen)}
+            caption={captionOf?.(item)}
+            marks={marksOf?.(item)}
+            {urls}
+            onSelect={(i) => onSelect(i as T)}
+            onOpen={(i) => onOpen(i as T)}
+            onSlot={(i, s) => onSlot(i as T, s)}
+            onDragOut={(i) => onDragOut(i as T)}
+            onMenu={(i, x, y) => onMenu(i as T, x, y)}
+          />
         {/each}
       </div>
     {/each}

@@ -33,7 +33,8 @@ anything out to Explorer to extract it.
 | 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | done                                          |
 | 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | done                                          |
 | 6.5. Usability pass: stop buttons, folder rescans, view-switch place, open files, STL pictures | done (branch `usability-pass`)              |
-| 7. Search: name search with Free/Word/Regexp, scoped to the open folder                      | built (branch `m7-search`), manual check due  |
+| 7. Search: name search with Free/Word/Regexp, scoped to the open folder                      | done                                          |
+| 7.5. Follow-ups: view toggle button, shown file endings (`config.yaml`), tile search results | built (branch `m7-polish`), manual check due  |
 | 8. Tags and filters                                                                          | later (only the database tables exist so far) |
 
 Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and
@@ -210,14 +211,14 @@ prints either view.
   index worker rebuilds them after each run and swaps them in before it sends `index-done`.
 - **`list_folder`** takes the path as name segments (a name may contain `/`), and lists the deepest folder that still
   exists. The returned `path` says where it ended up, so the UI follows when a folder vanished in a rescan.
-- **UI:** toolbar (Back, Up, breadcrumbs, Models | Files, Search, Rescan (🗘), Add folder), a title row with counts, a virtualized
+- **UI:** toolbar (Back, Up, breadcrumbs, the Models/Files toggle, Search, Rescan (🗘), Add folder), a title row with counts, a virtualized
   grid of tiles (min 200 px, square art, name, caption) and a status bar (stats, missing folders, the selected item's
   real path, index progress). Placeholder art per kind until thumbnails; a box-with-padlock for locked archives.
   Double-click or Enter opens; Backspace / Alt+Up goes up; Alt+Left goes back (Back restores the scroll position).
 - **Search:** the magnifying glass opens a bar under the toolbar that searches the open folder and everything below
   it. Free (letters in order, the default), Word (one piece) or Regexp; Aa (case) only in the Files view, whose names
-  keep their case. Typing swaps the grid for a list of matches (kind icon, highlighted name, where it is); a folder
-  opens in the browser and closes search, a file opens in its app. Esc closes the bar. Matching runs in Rust on the
+  keep their case. Typing swaps the grid for a grid of matching tiles (or the compact list); a folder opens in the
+  browser and closes search, a file is shown selected in its folder. Esc closes the bar. Matching runs in Rust on the
   cached view tree (`stl_core::vtree::search`, `search` command), at most 1000 results.
 
 ## Decisions
@@ -257,6 +258,19 @@ prints either view.
     Rescan does the same for a folder tile.
   - Switching between Models and Files keeps you at, or near, the same place.
   - Double-clicking a file opens it in its Windows app.
+- **Follow-ups to milestone 7** *(the user's list after trying search)*:
+  - **The view toggle is one icon button** showing the view it switches *to*: a wireframe box (Models) in the Files
+    view, a page with three lines (Files) in the Models view. Its hover text is "Switch to Models?" / "Switch to Files?".
+  - **Only chosen file endings are shown**, in both views and in search. They live in `~/.stl-browser/config.yaml`
+    under `shown_extensions`; when the key is missing, the defaults apply:
+    `stl obj 3mf fbx blend dae`, `lys lyt chitubox ctb photon sl1`, `jpg jpeg png gif webp bmp`,
+    `pdf txt md html htm`. Folders, archives and locked archives always show. (Picked from the endings found in the
+    real index: stl, jpg, obj, hmp, lys, png, hmv, txt, qml, pyc, mtl, dll, html, chitubox, pdf, exe, 3mf, … .)
+    This replaces the old Files-view-only rule, which made `.exe$` find hits in Models but not in Files.
+  - **Search results are tiles** like the browser (thumbnails, carousels, highlighted names, the last two folders as
+    the caption). A button in the search bar switches to the compact list and is remembered. Double-click a folder
+    hit to open it; double-click a file hit to go to its folder with the file selected and scrolled into view.
+    Right-click → Open still opens a file in its Windows app.
 - **Releases are automatic** *(added during milestone 7)*. Every push to `main` runs `.github/workflows/release.yml`:
   - Commitizen (`.cz.toml`) picks the next version from the conventional commits since the last tag. It writes it to
     `Cargo.toml`, `Cargo.lock`, `tauri.conf.json`, `package.json` and `package-lock.json`, updates `CHANGELOG.md`, and
@@ -268,6 +282,23 @@ prints either view.
 
 ### Made by me (correct any that are wrong)
 
+- **Milestone 7 follow-up details:**
+  - **`config.yaml` is read once at startup**; edit it, then restart. A missing file is written as a commented template
+    listing the defaults. A file that doesn't parse is ignored (defaults apply) and the status bar says why.
+  - **The filter is `stl_core::vtree::filter::Shown`**, matched on the ending of the node name. `browse::visible`
+    uses it for listings, child counts, search and the export plan.
+  - **Drags and Extract to… follow the filter** (what you see is what you get). `mtl` is hidden by default, so an
+    exported OBJ loses its materials unless `mtl` is added to the config.
+  - **An inner archive that wasn't expanded** (past the nesting depth, or unreadable) is a file node named
+    `x.zip`/`.rar`/`.7z`; the filter always shows it, like other archives.
+  - **Folder counts (models, images, files) are not filtered**; they count the index.
+  - **The defaults leave out some endings the resolver knows** (`ply ztl zpr step stp`, `cbddlp goo pwmo pwms`, `rtf`),
+    as the user picked. A model made only of those shows a file count but opens empty.
+  - **Search hits carry the full tile** (`Hit` flattens an `Item`), so the result grid reuses `TileGrid`.
+  - **Revealing a tile** re-applies when the grid's layout settles (a scrollbar appearing drops a column) until the
+    user scrolls.
+  - **The Models view can show fewer documents than the Files view** for the same scope (7 vs 9 PDFs in Vol.1): the
+    resolver doesn't place boilerplate like readmes and licenses. That isn't the filter.
 - **Usability pass details:**
   - **A stopped index** deletes no vanished sources, because it hasn't seen them all. It still resolves the
     collections it changed, then skips the remaining roots.
@@ -343,8 +374,8 @@ prints either view.
     being picked as a model's meshes.
 - *Added in milestone 4:*
   - **Trees are cached in `AppState`** and rebuilt by the index worker after every run (about 0.8 s for both views).
-  - **The Files view hides other files.** It lists folders, images and object files (`model`, `scene`). The Models
-    view shows everything the resolver put in the tree, so its `docs` folders keep their documents.
+  - ~~The Files view hides other files.~~ Replaced after milestone 7: both views show only the endings in
+    `config.yaml` (see "Follow-ups to milestone 7").
   - **No Extract to… or thumbnail UI yet**, so no buttons that do nothing.
   - **Offline fonts:** IBM Plex if installed, else Segoe UI; nothing is fetched at runtime.
   - **UI logic tests** use Node's built-in runner on the TypeScript files (no test framework dependency).
@@ -445,7 +476,8 @@ From the milestone 4 review:
 - **Keyboard and screen readers:**
   - Tab can't reach tiles outside the rendered rows, and there are no arrow keys in the grid.
   - The progress block's `role="status"` announces every source.
-- **Files view folders that hold only hidden files** show as empty folders. They are not pruned.
+- **Folders that hold only hidden files** show as empty folders, in both views. They are not pruned.
+- **`config.yaml` changes need a restart**; there is no settings UI.
 
 From the milestone 5 review:
 

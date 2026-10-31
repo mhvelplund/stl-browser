@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { columns, tileWidth, visibleRows } from "./grid.ts";
+import { columns, revealTop, tileWidth, visibleRows } from "./grid.ts";
 
 test("columns", () => {
   assert.equal(columns(100), 1);
@@ -17,4 +17,13 @@ test("visible_rows_bounded", () => {
   assert.deepEqual(visibleRows(0, 800, 260, 2), { first: 0, last: 2 });
   assert.deepEqual(visibleRows(0, 800, 260, 0), { first: 0, last: 0 });
   assert.deepEqual(visibleRows(1e9, 800, 260, 10), { first: 4, last: 10 });
+});
+
+test("reveal_scrolls_only_when_needed", () => {
+  // rows of 100 px below a 20 px pad, a 300 px viewport
+  const at = (index: number, top: number) => revealTop(index, 4, 100, 20, 300, top);
+  assert.equal(at(1, 0), 0); // row 0 is in view
+  assert.equal(at(8, 0), 20 + 2 * 100 - 100); // row 2 centred: 220 - (300 - 100) / 2
+  assert.equal(at(0, 500), 0); // centring row 0 can't go above the top
+  assert.equal(at(-1, 70), 70); // not found: stay
 });

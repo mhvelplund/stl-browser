@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use stl_core::vtree::filter::Shown;
 use stl_core::vtree::search::{Field, Matcher, Mode, search as vtree_search};
 use stl_core::vtree::{Counts, Node, NodeId, NodeKind, Tree, counts, is_file_kind};
 use stl_thumb::{ThumbKind, thumb_kind};
@@ -123,11 +124,9 @@ fn kind_name(kind: NodeKind) -> &'static str {
     }
 }
 
-/// The Files view shows folders, images and object files only; the Models view shows all.
-pub(crate) fn visible(view: View, n: &Node) -> bool {
-    view == View::Models
-        || n.kind != NodeKind::File
-        || matches!(n.info.file_kind.as_deref(), Some("model" | "scene" | "image"))
+/// Both views list folders, archives and the files whose ending is shown (`config.yaml`).
+pub(crate) fn visible(shown: &Shown, n: &Node) -> bool {
+    shown.shows(n)
 }
 
 fn leaf_thumb(n: &Node) -> Option<(ThumbKind, Thumb)> {
@@ -272,35 +271,41 @@ fn carousel(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> (Vec<Th
     (cells, pics, slot)
 }
 
+/// The tile for node `c`, with its carousel.
+fn item(vt: &ViewTree, c: NodeId, shown: &Shown, selected: &HashMap<String, String>) -> Item {
+    let t = &vt.tree;
+    let n = &t.nodes[c];
+    let k = vt.counts[c];
+    let (composite, pics, slot) = carousel(t, c, selected);
+    Item {
+        name: n.name.clone(),
+        kind: kind_name(n.kind),
+        key: n.key.clone(),
+        real: n.real.clone(),
+        badge: n.info.badge.clone(),
+        file_kind: n.info.file_kind.clone(),
+        openable: !is_file_kind(n.kind),
+        children: n.children.iter().filter(|&&g| visible(shown, &t.nodes[g])).count() as u32,
+        models: k.models,
+        files: k.files,
+        images: k.images,
+        composite,
+        pics,
+        slot,
+    }
+}
+
 /// List the deepest folder along `path` that exists. `selected` maps node keys to their saved
 /// carousel choice (an image key or `composite`).
-pub fn list(views: &Views, view: View, path: &[String], selected: &HashMap<String, String>) -> Listing {
+pub fn list(views: &Views, view: View, path: &[String], selected: &HashMap<String, String>, shown: &Shown) -> Listing {
     let vt = views.get(view);
     let t = &vt.tree;
     let (id, used) = t.walk(path);
-    let kids = |id: usize| t.nodes[id].children.iter().copied().filter(move |&c| visible(view, &t.nodes[c]));
-    let items = kids(id)
-        .map(|c| {
-            let n = &t.nodes[c];
-            let k = vt.counts[c];
-            let (composite, pics, slot) = carousel(t, c, selected);
-            Item {
-                name: n.name.clone(),
-                kind: kind_name(n.kind),
-                key: n.key.clone(),
-                real: n.real.clone(),
-                badge: n.info.badge.clone(),
-                file_kind: n.info.file_kind.clone(),
-                openable: !is_file_kind(n.kind),
-                children: kids(c).count() as u32,
-                models: k.models,
-                files: k.files,
-                images: k.images,
-                composite,
-                pics,
-                slot,
-            }
-        })
+    let items = t.nodes[id]
+        .children
+        .iter()
+        .filter(|&&c| visible(shown, &t.nodes[c]))
+        .map(|&c| item(vt, c, shown, selected))
         .collect();
     let (n, k) = (&t.nodes[id], vt.counts[id]);
     Listing {
@@ -324,17 +329,13 @@ pub enum SearchMode {
     Regexp,
 }
 
-/// One search result; `parent` is the folder that lists it, so the per-folder commands
-/// (open, drag, extract) work on it.
+/// One search result: the tile its folder would show, and `parent`, the folder that lists it,
+/// so the per-folder commands (open, drag, extract) work on it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hit {
-    pub name: String,
-    pub kind: &'static str,
-    pub key: String,
-    pub real: Vec<String>,
-    pub file_kind: Option<String>,
-    pub openable: bool,
+    #[serde(flatten)]
+    pub item: Item,
     pub parent: Vec<String>,
     /// Char ranges `[start, end)` into `name` to highlight.
     pub marks: Vec<(usize, usize)>,
@@ -351,10 +352,26 @@ pub struct Found {
 
 pub const SEARCH_LIMIT: usize = 1000;
 
-/// The folders and files below `path` whose names match `query`. The Files view matches names
-/// with their case; the Models view's names are lowercase, so it always ignores case.
-pub fn search(views: &Views, view: View, path: &[String], query: &str, mode: SearchMode, case_sensitive: bool) -> Result<Found, String> {
-    let t = &views.get(view).tree;
+/// What a search asks for.
+pub struct Query<'a> {
+    pub text: &'a str,
+    pub mode: SearchMode,
+    pub case_sensitive: bool,
+}
+
+/// The shown folders and files below `path` whose names match the query. The Files view matches
+/// names with their case; the Models view's names are lowercase, so it always ignores case.
+pub fn search(
+    views: &Views,
+    view: View,
+    path: &[String],
+    q: &Query,
+    selected: &HashMap<String, String>,
+    shown: &Shown,
+) -> Result<Found, String> {
+    let (query, mode, case_sensitive) = (q.text, q.mode, q.case_sensitive);
+    let vt = views.get(view);
+    let t = &vt.tree;
     let (id, used) = t.walk(path);
     let path = path[..used].to_vec();
     if query.is_empty() {
@@ -370,22 +387,10 @@ pub fn search(views: &Views, view: View, path: &[String], query: &str, mode: Sea
         View::Models => (Field::Name, false),
     };
     let m = Matcher::new(query, mode, case_sensitive)?;
-    let (found, truncated) = vtree_search(t, id, &path, &m, field, &|n| visible(view, n), SEARCH_LIMIT);
+    let (found, truncated) = vtree_search(t, id, &path, &m, field, &|n| visible(shown, n), SEARCH_LIMIT);
     let hits = found
         .into_iter()
-        .map(|h| {
-            let n = &t.nodes[h.id];
-            Hit {
-                name: n.name.clone(),
-                kind: kind_name(n.kind),
-                key: n.key.clone(),
-                real: n.real.clone(),
-                file_kind: n.info.file_kind.clone(),
-                openable: !is_file_kind(n.kind),
-                parent: h.parent,
-                marks: h.marks,
-            }
-        })
+        .map(|h| Hit { item: item(vt, h.id, shown, selected), parent: h.parent, marks: h.marks })
         .collect();
     Ok(Found { path, hits, truncated })
 }
@@ -475,17 +480,26 @@ mod tests {
     }
 
     #[test]
-    fn files_view_hides_other_files_and_shows_real() {
+    fn files_view_lists_shown_files_and_real_paths() {
         let dir = tempfile::tempdir().unwrap();
-        let state = library(dir.path());
+        let mut state = library(dir.path());
         let l = list_folder_impl(&state, View::Files, segs(&["vol", "coll", "orc"])).unwrap();
         let names: Vec<_> = l.items.iter().map(|i| i.name.as_str()).collect();
-        assert_eq!(names, ["orc.jpg", "orc.stl"]); // notes.txt hidden
-        assert!(l.items[1].real[0].ends_with("Coll\\Orc\\orc.stl"), "{:?}", l.items[1].real);
-        assert_eq!(l.items[1].file_kind.as_deref(), Some("model"));
-        assert!(!l.items[1].openable);
+        assert_eq!(names, ["notes.txt", "orc.jpg", "orc.stl"]);
+        let stl = item(&l, "orc.stl");
+        assert!(stl.real[0].ends_with("Coll\\Orc\\orc.stl"), "{:?}", stl.real);
+        assert_eq!(stl.file_kind.as_deref(), Some("model"));
+        assert!(!stl.openable);
         let coll = list_folder_impl(&state, View::Files, segs(&["vol", "coll"])).unwrap();
-        assert_eq!(coll.items.iter().find(|i| i.name == "orc").unwrap().children, 2);
+        assert_eq!(item(&coll, "orc").children, 3);
+        // without `txt` in the config the notes are hidden, and not counted as children
+        state.shown = Shown::new(["stl", "jpg"]);
+        let l = list_folder_impl(&state, View::Files, segs(&["vol", "coll", "orc"])).unwrap();
+        assert_eq!(l.items.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["orc.jpg", "orc.stl"]);
+        let coll = list_folder_impl(&state, View::Files, segs(&["vol", "coll"])).unwrap();
+        assert_eq!(item(&coll, "orc").children, 2);
+        let l = list_folder_impl(&state, View::Models, segs(&["vol", "coll", "orc"])).unwrap();
+        assert_eq!(item(&l, "docs").children, 0);
     }
 
     #[test]
@@ -685,8 +699,9 @@ mod tests {
         let l = list_folder_impl(&state, View::Files, segs(&["vol", "coll", "orc"])).unwrap();
         let v = serde_json::to_value(&l).unwrap();
         assert_eq!(v["view"], "files");
-        assert_eq!(v["items"][1]["fileKind"], "model");
-        assert_eq!(v["items"][1]["openable"], false);
+        assert_eq!(v["items"][2]["name"], "orc.stl");
+        assert_eq!(v["items"][2]["fileKind"], "model");
+        assert_eq!(v["items"][2]["openable"], false);
         let view: View = serde_json::from_str("\"models\"").unwrap();
         assert_eq!(view, View::Models);
     }
@@ -695,7 +710,7 @@ mod tests {
     }
 
     fn hit_names(f: &Found) -> Vec<&str> {
-        f.hits.iter().map(|h| h.name.as_str()).collect()
+        f.hits.iter().map(|h| h.item.name.as_str()).collect()
     }
 
     #[test]
@@ -703,16 +718,38 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
         let f = find(&state, View::Files, &["vol", "coll"], "o", SearchMode::Word, false);
-        assert_eq!(hit_names(&f), ["orc", "orc.jpg", "orc.stl"]); // notes.txt is hidden in Files
+        assert_eq!(hit_names(&f), ["orc", "notes.txt", "orc.jpg", "orc.stl"]);
         assert_eq!(f.path, ["vol", "coll"]);
     }
 
+    /// The regression: `.exe$` found exes in Models but not in Files. Both views now list (and
+    /// search) the same endings.
     #[test]
-    fn files_view_hides_other_files() {
+    fn both_views_search_the_shown_endings() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = library(dir.path());
+        std::fs::write(dir.path().join("lib/Vol/Coll/Orc/setup.exe"), b"x").unwrap();
+        let (done, views) = crate::indexer::run_index(&state.db_path(), None, &Default::default(), &mut |_| {});
+        assert!(done.ok, "{:?}", done.error);
+        state.set_views(views.unwrap());
+        let exes = |s: &AppState, v| find(s, v, &[], r"\.exe$", SearchMode::Regexp, false).hits.len();
+        assert_eq!((exes(&state, View::Models), exes(&state, View::Files)), (0, 0));
+        assert_eq!(find(&state, View::Models, &[], "notes", SearchMode::Word, false).hits.len(), 1);
+        assert_eq!(find(&state, View::Files, &[], "notes", SearchMode::Word, false).hits.len(), 1);
+        state.shown = Shown::new(["exe"]);
+        assert_eq!((exes(&state, View::Models), exes(&state, View::Files)), (1, 1));
+        assert!(find(&state, View::Files, &[], "notes", SearchMode::Word, false).hits.is_empty());
+    }
+
+    #[test]
+    fn hits_carry_their_carousel() {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
-        assert!(find(&state, View::Files, &[], "notes", SearchMode::Word, false).hits.is_empty());
-        assert_eq!(find(&state, View::Models, &[], "notes", SearchMode::Word, false).hits.len(), 1);
+        let f = find(&state, View::Models, &[], "orc", SearchMode::Word, false);
+        let orc = f.hits.iter().find(|h| h.item.name == "orc").unwrap();
+        let listed = list_folder_impl(&state, View::Models, orc.parent.clone()).unwrap();
+        let same = item(&listed, "orc");
+        assert_eq!((orc.item.pics.clone(), orc.item.slot, orc.item.children), (same.pics.clone(), same.slot, same.children));
     }
 
     #[test]
@@ -738,7 +775,7 @@ mod tests {
         assert!(!f.hits.is_empty());
         for h in &f.hits {
             let l = list_folder_impl(&state, View::Models, h.parent.clone()).unwrap();
-            assert!(l.items.iter().any(|i| i.name == h.name), "{} not in {:?}", h.name, h.parent);
+            assert!(l.items.iter().any(|i| i.name == h.item.name), "{} not in {:?}", h.item.name, h.parent);
         }
     }
 
