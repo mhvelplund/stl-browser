@@ -36,7 +36,7 @@ anything out to Explorer to extract it.
 | 7. Search: name search with Free/Word/Regexp, scoped to the open folder                        | done                                          |
 | 7.5. Follow-ups: view toggle button, shown file endings (`config.yaml`), tile search results   | done                                          |
 | 8. Tags: user and generated tags, dots and pills on tiles, a side panel, `tag:` search         | done                                          |
-| 9. Multi-select: click, Ctrl/Shift-click, rubber band; bulk tags, drag and extract of several | done                                          |
+| 9. Multi-select: click, Ctrl/Shift-click, rubber band; bulk tags, drag and extract of several  | done                                          |
 
 Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and 18,050
 files (1,243 of them in nested archives) with 0 errors, the same as the prototype. It takes about 35 s, and a rescan of
