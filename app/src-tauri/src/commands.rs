@@ -1,14 +1,14 @@
 //! Tauri commands. Each command is a thin wrapper over an `_impl` fn that tests can call directly.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
-use stl_core::vtree::tags::{TagKind, UserTags, check_writable};
+use stl_core::vtree::tags::{Tag, TagKind, UserTags, check_writable, normalize};
 use stl_index::{scanstore, tagstore};
 
-use crate::browse::{self, Found, Listing, NodeTags, SearchMode, TagView, View};
+use crate::browse::{self, Found, Listing, NodeTags, SearchMode, TagView, Target, View};
 use crate::indexer::{self, BUSY};
 use crate::state::{AppState, IndexGuard};
 use crate::thumbs::ThumbReady;
@@ -213,6 +213,146 @@ pub fn hide_tag(state: tauri::State<'_, AppState>, view: View, path: Vec<String>
 #[tauri::command(async)]
 pub fn unhide_tag(state: tauri::State<'_, AppState>, view: View, path: Vec<String>, name: String, kind: String, tag: String) -> Result<(), String> {
     unhide_tag_impl(&state, view, path, name, kind, tag)
+}
+
+/// One target's tags for the multi-item tag panel.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetTags {
+    pub own: Vec<TagView>,
+    pub hidden: Vec<TagView>,
+    /// Has tag keys and doesn't share its folder with an owner.
+    pub editable: bool,
+    /// Not editable, but its owner is one of the targets (so it is tagged through the owner).
+    pub covered: bool,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EditOp {
+    /// Add to every target (a single-value kind replaces the old value).
+    Add,
+    /// Remove the user-set value and hide the generated one, where present.
+    Remove,
+    /// Give it to the targets that lack it: unhide where hidden, else add.
+    Fill,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EditResult {
+    /// Targets that got a write.
+    pub changed: u32,
+    /// Targets that couldn't be edited (not counting ones covered by their owner).
+    pub skipped: u32,
+}
+
+/// What a bulk edit needs of a target, read before the DB is locked.
+struct Facts {
+    keys: Vec<String>,
+    editable: bool,
+    covered: bool,
+    own: Vec<Tag>,
+    hidden: Vec<Tag>,
+    generated: Vec<Tag>,
+}
+
+fn target_facts(state: &AppState, view: View, targets: &[Target], user: &UserTags) -> Result<Vec<Facts>, String> {
+    let views = state.views()?;
+    let t = &views.get(view).tree;
+    let ids = targets.iter().map(|g| browse::locate_node(&views, view, &g.path, &g.name).map(|a| a.id)).collect::<Result<Vec<_>, _>>()?;
+    Ok(ids
+        .iter()
+        .map(|&id| {
+            let n = &t.nodes[id];
+            Facts {
+                keys: n.info.tag_keys.clone(),
+                editable: !n.info.tag_keys.is_empty() && n.info.tag_owner.is_none(),
+                covered: n.info.tag_owner.is_some_and(|o| ids.contains(&o)),
+                own: user.effective(n),
+                hidden: user.hidden_of(n),
+                generated: n.info.tags.clone(),
+            }
+        })
+        .collect())
+}
+
+pub fn nodes_tags_impl(state: &AppState, view: View, targets: Vec<Target>) -> Result<Vec<TargetTags>, String> {
+    let user = user_tags(state)?;
+    let views = |tags: &[Tag]| tags.iter().map(TagView::from).collect();
+    Ok(target_facts(state, view, &targets, &user)?
+        .into_iter()
+        .map(|f| TargetTags { own: views(&f.own), hidden: views(&f.hidden), editable: f.editable, covered: f.covered })
+        .collect())
+}
+
+/// Each target's own and hidden tags, in `targets` order.
+#[tauri::command(async)]
+pub fn nodes_tags(state: tauri::State<'_, AppState>, view: View, targets: Vec<Target>) -> Result<Vec<TargetTags>, String> {
+    nodes_tags_impl(&state, view, targets)
+}
+
+pub fn edit_tags_impl(state: &AppState, view: View, targets: Vec<Target>, op: EditOp, kind: String, tag: String) -> Result<EditResult, String> {
+    let kind = TagKind::parse(&kind).ok_or_else(|| format!("unknown tag kind {kind}"))?;
+    let name = normalize(&tag).ok_or("a tag name can't be empty")?;
+    if op != EditOp::Remove && !kind.settable() {
+        return Err(format!("{} tags can't be set", kind.as_str()));
+    }
+    let user = user_tags(state)?;
+    let facts = target_facts(state, view, &targets, &user)?;
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut out = EditResult::default();
+    let is = |t: &Tag| t.kind == kind && t.name == name;
+    for f in &facts {
+        if !f.editable {
+            if !f.covered {
+                out.skipped += 1;
+            }
+            continue;
+        }
+        let write = |w: Write| w(&conn, &f.keys, kind, &name).map_err(|e| e.to_string());
+        let set: Vec<&Tag> = f.keys.iter().filter_map(|k| user.set.get(k)).flatten().collect();
+        let user_set = set.iter().any(|t| is(t));
+        let hidden = f.hidden.iter().any(is);
+        let shown_generated = f.generated.iter().any(is) && !hidden;
+        let changed = match op {
+            EditOp::Add => {
+                write(tagstore::add)?;
+                true
+            }
+            EditOp::Remove => {
+                if user_set {
+                    write(tagstore::remove)?;
+                }
+                if shown_generated {
+                    write(tagstore::hide)?;
+                }
+                user_set || shown_generated
+            }
+            EditOp::Fill if f.own.iter().any(is) => false,
+            EditOp::Fill => {
+                if hidden {
+                    write(tagstore::unhide)?;
+                }
+                // a user-set value of a single-value kind hides the generated one: set it instead
+                let overridden = kind != TagKind::User && set.iter().any(|t| t.kind == kind);
+                if !hidden || overridden {
+                    write(tagstore::add)?;
+                }
+                true
+            }
+        };
+        if changed {
+            out.changed += 1;
+        }
+    }
+    Ok(out)
+}
+
+/// Add, remove or fill one tag over many targets; shadowed targets are skipped.
+#[tauri::command(async)]
+pub fn edit_tags(state: tauri::State<'_, AppState>, view: View, targets: Vec<Target>, op: EditOp, kind: String, tag: String) -> Result<EditResult, String> {
+    edit_tags_impl(&state, view, targets, op, kind, tag)
 }
 
 /// The user-set tags in use plus every generated tag in the Models tree, sorted by (kind, name).
