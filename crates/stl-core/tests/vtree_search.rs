@@ -214,3 +214,18 @@ fn no_matcher_and_no_terms_gives_nothing() {
     let fx = tagged();
     assert!(search(&fx.t, 0, &[], None, Field::Name, &|_| true, &none(), 100).0.is_empty());
 }
+
+#[test]
+fn own_is_never_read_without_tag_terms() {
+    let fx = tagged();
+    let calls = std::cell::Cell::new(0);
+    let own = |id: NodeId| {
+        calls.set(calls.get() + 1);
+        fx.t.nodes[id].info.tags.clone()
+    };
+    let filter = TagFilter { terms: &[], own: &own, start: Inherited::default() };
+    let m = Matcher::new("arm", Mode::Word, false).unwrap();
+    let (hits, _) = search(&fx.t, 0, &[], Some(&m), Field::Name, &|_| true, &filter, 100);
+    assert_eq!(ids(&hits), [fx.arm, fx.other_arm]);
+    assert_eq!(calls.get(), 0);
+}

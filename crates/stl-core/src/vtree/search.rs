@@ -173,8 +173,10 @@ fn walk(t: &Tree, id: NodeId, path: &mut Vec<String>, cx: &Ctx, inh: &Inherited,
         if !(cx.keep)(n) {
             continue;
         }
-        let own = (cx.tags.own)(c);
-        let covered = inh.covers(&own, cx.tags.terms);
+        // without tag terms nothing reads the tags, so skip the (costly) lookup
+        let by_tags = !cx.tags.terms.is_empty();
+        let own = if by_tags { (cx.tags.own)(c) } else { Vec::new() };
+        let covered = !by_tags || inh.covers(&own, cx.tags.terms);
         let mut marks = None;
         match cx.m {
             Some(m) => {
@@ -203,8 +205,11 @@ fn walk(t: &Tree, id: NodeId, path: &mut Vec<String>, cx: &Ctx, inh: &Inherited,
                 continue;
             }
         }
+        if n.children.is_empty() {
+            continue;
+        }
         path.push(n.name.clone());
-        let full = walk(t, c, path, cx, &inh.push(&own), hits);
+        let full = if by_tags { walk(t, c, path, cx, &inh.push(&own), hits) } else { walk(t, c, path, cx, inh, hits) };
         path.pop();
         if full {
             return true;
