@@ -289,7 +289,11 @@ prints either view.
     uses it for listings, child counts, search and the export plan.
   - **Drags and Extract to… follow the filter** (what you see is what you get). `mtl` is hidden by default, so an
     exported OBJ loses its materials unless `mtl` is added to the config.
+  - **An inner archive that wasn't expanded** (past the nesting depth, or unreadable) is a file node named
+    `x.zip`/`.rar`/`.7z`; the filter always shows it, like other archives.
   - **Folder counts (models, images, files) are not filtered**; they count the index.
+  - **The defaults leave out some endings the resolver knows** (`ply ztl zpr step stp`, `cbddlp goo pwmo pwms`, `rtf`),
+    as the user picked. A model made only of those shows a file count but opens empty.
   - **Search hits carry the full tile** (`Hit` flattens an `Item`), so the result grid reuses `TileGrid`.
   - **Revealing a tile** re-applies when the grid's layout settles (a scrollbar appearing drops a column) until the
     user scrolls.

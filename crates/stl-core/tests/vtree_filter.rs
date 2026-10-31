@@ -16,6 +16,15 @@ fn folders_archives_and_locked_items_are_always_shown() {
     }
 }
 
+/// An inner archive that wasn't expanded (too deep, unreadable) is a file node named `x.zip`.
+#[test]
+fn unexpanded_archives_are_always_shown() {
+    let s = Shown::new(["stl"]);
+    for name in ["kit.zip", "Kit.RAR", "kit.7z"] {
+        assert!(shows(&s, name, NodeKind::File), "{name}");
+    }
+}
+
 #[test]
 fn files_are_shown_by_their_ending() {
     let s = Shown::new(["stl", "jpg"]);

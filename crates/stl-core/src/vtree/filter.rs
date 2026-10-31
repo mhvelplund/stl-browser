@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use super::{Node, NodeKind};
+use crate::names::{Kind, kind_of};
 
 /// The endings shown when the config doesn't set any.
 pub const DEFAULT_SHOWN: &[&str] = &[
@@ -44,7 +45,8 @@ impl Shown {
 
     /// A file or image is shown when its ending is in the set; anything else always is.
     pub fn shows(&self, n: &Node) -> bool {
-        if !matches!(n.kind, NodeKind::File | NodeKind::Image) {
+        // an inner archive that wasn't expanded (too deep, unreadable) stays a file node
+        if !matches!(n.kind, NodeKind::File | NodeKind::Image) || kind_of(&n.name) == Kind::Archive {
             return true;
         }
         match n.name.rsplit_once('.') {

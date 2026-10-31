@@ -82,15 +82,16 @@
     onVisible({ first, last });
   });
 
-  /** A tile to scroll to once the grid has its size. */
-  let toReveal: string | null = $state(null);
+  /** A tile to scroll to once the grid has its size (a fresh object per listing, so the same
+   * id revealed twice still re-runs). */
+  let toReveal: { id: string } | null = $state(null);
 
   $effect(() => {
     items;
     untrack(() => {
       if (el) el.scrollTop = scroll;
       top = scroll;
-      toReveal = reveal;
+      toReveal = reveal ? { id: reveal } : null;
     });
   });
 
@@ -98,7 +99,7 @@
   // user scrolls
   $effect(() => {
     if (!toReveal || !el || !width || !height) return;
-    const want = toReveal;
+    const want = toReveal.id;
     const index = untrack(() => items.findIndex((i) => idOf(i) === want));
     const t = revealTop(index, cols, rowHeight, PAD, height, untrack(() => top));
     if (t === untrack(() => top)) return;

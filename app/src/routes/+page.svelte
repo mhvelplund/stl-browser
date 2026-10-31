@@ -183,7 +183,10 @@
 
   // the results replace the grid: bring it back where it was scrolled to
   $effect(() => {
-    if (showingResults) restore = scroll;
+    if (showingResults) {
+      restore = scroll;
+      reveal = null; // a reveal is for the listing it came with, not for coming back from search
+    }
   });
 
   /** Double-click or Enter on a hit closes search: a folder opens in the browser, a file is
