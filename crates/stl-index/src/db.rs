@@ -1,11 +1,11 @@
 //! SQLite schema and migrations. Cached listings (`roots`, `sources`, `entries`) and user data
-//! (`settings`, `selected_thumb`, `tags`, `node_tags`) live here; user data is keyed by stable
+//! (`settings`, `selected_thumb`, `tags`, `node_tags`, `hidden_tags`) live here; user data is keyed by stable
 //! node keys, never by row ids.
 use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, Result, params};
 
-pub const SCHEMA_VERSION: i32 = 5;
+pub const SCHEMA_VERSION: i32 = 6;
 
 const V1: &str = "
 CREATE TABLE roots(
@@ -64,8 +64,20 @@ CREATE TABLE thumbs(entry_id INTEGER PRIMARY KEY REFERENCES entries(id) ON DELET
     cache_rel TEXT, status TEXT NOT NULL, error TEXT);
 ";
 
+/// v6: user tags, keyed by tag key (`r:` + real path). Replaces the never-written v1 tag tables.
+/// All three tables are user data: never rebuilt, rows for vanished paths are kept.
+const V6: &str = "
+DROP TABLE node_tags;
+DROP TABLE tags;
+CREATE TABLE tags(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, UNIQUE(kind, name));
+CREATE TABLE node_tags(tag_key TEXT NOT NULL, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                       PRIMARY KEY(tag_key, tag_id));
+CREATE TABLE hidden_tags(tag_key TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL,
+                         PRIMARY KEY(tag_key, kind, name));
+";
+
 /// Migration steps; `MIGRATIONS[i]` takes the schema from version `i` to `i + 1`.
-const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5];
+const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5, V6];
 
 /// Open (creating if needed) the index DB and bring its schema up to date.
 pub fn open(path: &Path) -> Result<Connection> {

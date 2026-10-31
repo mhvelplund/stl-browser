@@ -17,8 +17,8 @@ fn open_creates_schema() {
     let v: i32 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(v, 5);
-    assert_eq!(db::SCHEMA_VERSION, 5);
+    assert_eq!(v, 6);
+    assert_eq!(db::SCHEMA_VERSION, 6);
     let t = tables(&conn);
     for name in [
         "roots",
@@ -28,6 +28,7 @@ fn open_creates_schema() {
         "selected_thumb",
         "tags",
         "node_tags",
+        "hidden_tags",
         "groups",
         "models",
         "model_files",

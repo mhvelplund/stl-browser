@@ -21,6 +21,9 @@ pub enum IndexError {
     RootMissing(PathBuf),
     #[error("no root with id {0}")]
     UnknownRoot(i64),
+    /// A request the store refuses, e.g. an empty tag name.
+    #[error("{0}")]
+    Invalid(String),
     /// The resolver panicked on a collection; it is left empty until one of its sources changes.
     #[error("resolving {collection}: internal error: {message}")]
     ResolvePanic { collection: String, message: String },
