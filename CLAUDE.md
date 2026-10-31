@@ -69,7 +69,7 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
 - `app/src-tauri`: Tauri shell (`lib.rs` setup and the `thumb` protocol, `state.rs` with the cached view trees, the
   index busy flag and the thumbnail service, `commands.rs`, `browse.rs` for `list_folder` and carousel slots,
   `indexer.rs` for background index runs, `thumbs.rs` for thumbnail requests, workers and `thumb-ready`, `export.rs` for `begin_drag` and `extract_to`).
-  `app/src/routes/+page.svelte` plus `app/src/lib/` (components, and pure `grid`/`nav`/`items`/`indexrun`/`carousel`
+  `app/src/routes/+page.svelte` plus `app/src/lib/` (components, and pure `grid`/`nav`/`items`/`indexrun`/`carousel`/`selection`/`band`
   modules with tests):
   SvelteKit UI with the static adapter.
 - The Python prototype (the resolver's porting reference) was deleted after parity held in milestone 3. It is still in
