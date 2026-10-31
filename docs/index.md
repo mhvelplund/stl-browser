@@ -96,8 +96,8 @@ The usability pass (6.5) was checked in `tauri dev` on a scratch index of Vol.1,
 Milestone 8 was smoke-tested in `tauri dev` on a scratch index of Vol.1, driven over CDP (`invoke` for the commands, DOM
 and computed styles for the UI):
 
-- **Tag in Models, see it in Files:** the tag `necrons` on a model folder showed as a green user tag in both views, and
-  `tag:necrons` listed only that folder. `tag:necrons body` listed the `body.stl` files inside it.
+- **Tag in Models, see it in Files:** the tag `tinmen` on a model folder showed as a green user tag in both views, and
+  `tag:tinmen` listed only that folder. `tag:tinmen body` listed the `body.stl` files inside it.
 - **`tag:supported`** listed supported variant folders. No model with both a supported and an unsupported variant was
   among the hits. Hiding `supported` on one variant folder dropped that folder out of the search; restoring it brought
   it back.
@@ -251,7 +251,7 @@ Design: [`superpowers/specs/2026-10-31-tags-design.md`](superpowers/specs/2026-1
   - A `tags` row with no `node_tags` left is deleted. Names are trimmed, lowercased and space-collapsed.
   - `tagstore.rs` reads and writes them. Rows for vanished paths are kept, like `selected_thumb`.
 - **Keys are real paths** (`r:` + the lowercased real path), so a tag shows in both views and survives adding an outer
-  root. A merged folder is tagged under each of its real paths. See [`virtual-tree.md`].
+  root. A merged folder is tagged under each of its real paths. See "Tag keys (milestone 8)" in [`virtual-tree.md`].
 - **Generated tags** are built with the views (`views.rs` fills `Info.tags` on the nodes; Files folders copy the tags
   their matching Models nodes have in common with `copy_tags`) and are not stored. `vtree/tags.rs` holds the kinds,
   `effective` (generated − hidden − overridden kinds + user-set), query parsing and matching.

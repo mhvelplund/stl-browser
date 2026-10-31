@@ -5,7 +5,7 @@
 Milestone 8 ("Tags and filters") is next. Only the empty `tags` / `node_tags` tables exist. The user wants:
 
 - **Their own labels on things with odd names.** Many models are renamed for copyright reasons, so the user wants to tag
-  the "robot legion" folder `necrons` and find it by that name.
+  the "robot legion" folder `tinmen` and find it by that name.
 - **Metadata as tags.** The index already parses support state, scale, edition and designer out of names. The user
   wants to see that and search on it, for example to find the supported or unsupported files.
 - **Dots and pills.** A tagged tile shows one coloured dot per tag kind in the lower-right corner. Hovering the dots
@@ -18,7 +18,7 @@ This design was approved on 2026-10-31. The implementation plan follows in `docs
 ## Decided by the user
 
 - **Two families of tags:**
-  - *User tags* are free-form labels such as `necrons`. They are **green**.
+  - *User tags* are free-form labels such as `tinmen`. They are **green**.
   - *Generated tags* come from the index, and each kind has its own bright colour:
     - **support** (supported, unsupported, lychee, chitubox): **yellow**
     - **scale** (`25mm`, `32mm`…): **blue**
@@ -34,8 +34,8 @@ This design was approved on 2026-10-31. The implementation plan follows in `docs
   same thing in Files.
 - **Inherited in search only.** A folder's tags count for everything below it when searching. Only the item that was
   tagged shows the dots and pills.
-- **Topmost match.** A search made only of tag terms (`tag:necrons`) lists the topmost matching items, such as the
-  "robot legion" folder, and not their contents. Once a name term is added (`tag:necrons warrior`), items inside a
+- **Topmost match.** A search made only of tag terms (`tag:tinmen`) lists the topmost matching items, such as the
+  "robot legion" folder, and not their contents. Once a name term is added (`tag:tinmen warrior`), items inside a
   tagged folder match too.
 - **Editing happens in a side panel** beside the grid, for the selected tile. Tagging many tiles at once is not part of
   this milestone.
@@ -115,7 +115,7 @@ user-set. Each tag is `{ kind, name, by_user }`.
   - In Regexp mode, `tag:` terms are split out as well (my call). The UI hint says so.
 - **Matching:**
   - A tag term matches a tag of **any kind** by exact name, case-insensitively. So `tag:supported` finds generated and
-    user-set support tags alike, and `tag:necrons` finds the user tag.
+    user-set support tags alike, and `tag:tinmen` finds the user tag.
   - Hidden tags never match.
 - **Inheritance:** the walk carries the effective tags of all ancestors from the tree root (not only from the search
   scope). A node passes when its own tags plus its ancestors' tags cover every tag term.
@@ -123,7 +123,7 @@ user-set. Each tag is `{ kind, name, by_user }`.
   support, scale or creator value, the generated tags of that kind below it stop matching in search. For example, a
   model set to `32mm` means `tag:25mm` no longer finds its variant folders or files. Those items still show their own
   generated dots. The panel lists the override under "From folders above".
-- **Searching inside a folder that already has the tag** (e.g. `tag:necrons` inside "robot legion") returns its
+- **Searching inside a folder that already has the tag** (e.g. `tag:tinmen` inside "robot legion") returns its
   direct children as the topmost hits (my call). Search never returns the scope folder itself.
 - **Results:**
   - With tag terms only: a passing node is a hit, and the walk does not go below it (topmost match). An empty name
@@ -209,8 +209,8 @@ user-set. Each tag is `{ kind, name, by_user }`.
 
 - `cargo test --workspace`, `npm --prefix app test`, `npm --prefix app run check`.
 - On a scratch `STL_BROWSER_HOME` with Vol.1 indexed, drive `tauri dev` over CDP (port 9222):
-  - Tag a model folder `necrons` in Models. It shows a green dot. Switch to Files: the same folder shows the dot.
-  - `tag:necrons` lists only that folder. `tag:necrons` plus a part name lists files inside it.
+  - Tag a model folder `tinmen` in Models. It shows a green dot. Switch to Files: the same folder shows the dot.
+  - `tag:tinmen` lists only that folder. `tag:tinmen` plus a part name lists files inside it.
   - `tag:supported` lists supported variant folders, not models that have both kinds of variant. Hide `supported` on
     one: it drops out of that search. Restore it.
   - `tag:unsupported` plus a part name finds only parts in unsupported variants.

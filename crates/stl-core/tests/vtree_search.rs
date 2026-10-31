@@ -124,7 +124,7 @@ struct Fixture {
     other_arm: NodeId,
 }
 
-/// `vol/{legion/{warrior/{arm.stl, leg.stl}}, other/arm.stl}`; `legion` is tagged `necrons`.
+/// `vol/{legion/{warrior/{arm.stl, leg.stl}}, other/arm.stl}`; `legion` is tagged `tinmen`.
 fn tagged() -> Fixture {
     let mut t = Tree::new();
     let vol = t.add(0, "vol", NodeKind::Volume);
@@ -134,7 +134,7 @@ fn tagged() -> Fixture {
     t.add(warrior, "leg.stl", NodeKind::File);
     let other = t.add(vol, "other", NodeKind::Folder);
     let other_arm = t.add(other, "arm.stl", NodeKind::File);
-    t.nodes[legion].info.tags = vec![tag(TagKind::User, "necrons", true)];
+    t.nodes[legion].info.tags = vec![tag(TagKind::User, "tinmen", true)];
     Fixture { t, legion, warrior, arm, other_arm }
 }
 
@@ -150,7 +150,7 @@ fn ids(hits: &[Hit]) -> Vec<NodeId> {
 fn tag_only_search_stops_at_topmost() {
     let fx = tagged();
     let own = own_of(&fx.t);
-    let want = terms(&["necrons"]);
+    let want = terms(&["tinmen"]);
     let filter = TagFilter { terms: &want, own: &own, start: Inherited::default() };
     let (hits, truncated) = search(&fx.t, 0, &[], None, Field::Name, &|_| true, &filter, 100);
     assert_eq!(ids(&hits), [fx.legion]);
@@ -162,7 +162,7 @@ fn tag_only_search_stops_at_topmost() {
 fn tag_and_name_search_finds_inside() {
     let fx = tagged();
     let own = own_of(&fx.t);
-    let want = terms(&["necrons"]);
+    let want = terms(&["tinmen"]);
     let filter = TagFilter { terms: &want, own: &own, start: Inherited::default() };
     let m = Matcher::new("arm", Mode::Word, false).unwrap();
     let (hits, _) = search(&fx.t, 0, &[], Some(&m), Field::Name, &|_| true, &filter, 100);
@@ -174,7 +174,7 @@ fn tag_and_name_search_finds_inside() {
 fn scope_inside_tagged_folder_lists_children() {
     let fx = tagged();
     let own = own_of(&fx.t);
-    let want = terms(&["necrons"]);
+    let want = terms(&["tinmen"]);
     let scope = segs(&["vol", "legion"]);
     let start = Inherited::along(&fx.t, &scope, &own);
     let filter = TagFilter { terms: &want, own: &own, start };
@@ -202,7 +202,7 @@ fn user_override_masks_generated_below() {
 fn all_terms_required() {
     let fx = tagged();
     let own = own_of(&fx.t);
-    let want = terms(&["necrons", "supported"]);
+    let want = terms(&["tinmen", "supported"]);
     let filter = TagFilter { terms: &want, own: &own, start: Inherited::default() };
     assert!(search(&fx.t, 0, &[], None, Field::Name, &|_| true, &filter, 100).0.is_empty());
     let m = Matcher::new("arm", Mode::Word, false).unwrap();

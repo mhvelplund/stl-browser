@@ -20,9 +20,9 @@ fn keys(k: &[&str]) -> Vec<String> {
 #[test]
 fn add_and_load() {
     let (_d, conn) = open();
-    tagstore::add(&conn, &keys(&["r:a", "r:b"]), TagKind::User, "  Necrons ").unwrap();
+    tagstore::add(&conn, &keys(&["r:a", "r:b"]), TagKind::User, "  Tinmen ").unwrap();
     let t = tagstore::load(&conn).unwrap();
-    let want = vec![Tag { kind: TagKind::User, name: "necrons".into(), by_user: true }];
+    let want = vec![Tag { kind: TagKind::User, name: "tinmen".into(), by_user: true }];
     assert_eq!(t.set["r:a"], want);
     assert_eq!(t.set["r:b"], want);
 }

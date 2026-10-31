@@ -50,9 +50,9 @@ fn exclusive_drops_conflicts() {
 
 #[test]
 fn parse_query_basic() {
-    let p = parse_query(r#"warrior tag:necrons  tag:"Robot  Legion" arm"#);
+    let p = parse_query(r#"warrior tag:tinmen  tag:"Robot  Legion" arm"#);
     assert_eq!(p.text, "warrior arm");
-    assert_eq!(p.tags, vec!["necrons", "robot legion"]);
+    assert_eq!(p.tags, vec!["tinmen", "robot legion"]);
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn parse_query_edge_cases() {
     assert!(p.tags.is_empty());
     assert_eq!(p.text, "");
     assert_eq!(parse_query(r#"tag:"robot legion"#).tags, vec!["robot legion"]);
-    assert_eq!(parse_query("TAG:Necrons").tags, vec!["necrons"]);
+    assert_eq!(parse_query("TAG:Tinmen").tags, vec!["tinmen"]);
     let p = parse_query("stag:x");
     assert!(p.tags.is_empty());
     assert_eq!(p.text, "stag:x");

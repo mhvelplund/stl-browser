@@ -937,9 +937,9 @@ mod tests {
     fn tag_shows_in_both_views() {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
-        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Necrons");
-        assert_eq!(tags_of(&state, View::Models, &["vol", "coll"], "orc"), [tv("user", "necrons")]);
-        assert_eq!(tags_of(&state, View::Files, &["vol", "coll"], "orc"), [tv("user", "necrons")]);
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Tinmen");
+        assert_eq!(tags_of(&state, View::Models, &["vol", "coll"], "orc"), [tv("user", "tinmen")]);
+        assert_eq!(tags_of(&state, View::Files, &["vol", "coll"], "orc"), [tv("user", "tinmen")]);
         assert!(tags_of(&state, View::Files, &["vol", "coll"], "elf").is_empty());
     }
 
@@ -947,8 +947,8 @@ mod tests {
     fn remove_clears_every_real_path() {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
-        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Necrons");
-        crate::commands::remove_tag_impl(&state, View::Models, segs(&["vol", "coll"]), "orc".into(), "user".into(), "necrons".into())
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Tinmen");
+        crate::commands::remove_tag_impl(&state, View::Models, segs(&["vol", "coll"]), "orc".into(), "user".into(), "tinmen".into())
             .unwrap();
         assert!(tags_of(&state, View::Models, &["vol", "coll"], "orc").is_empty());
         assert!(tags_of(&state, View::Files, &["vol", "coll"], "orc").is_empty());
@@ -958,11 +958,11 @@ mod tests {
     fn tag_search_topmost_and_inside() {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
-        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Necrons");
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Tinmen");
         let run = |q: &str| find(&state, View::Models, &[], q, SearchMode::Word, false);
-        assert_eq!(hit_names(&run("tag:necrons")), ["orc"]);
-        assert_eq!(hit_names(&run("tag:necrons orc.stl")), ["orc.stl"]);
-        assert!(run("tag:necrons elf").hits.is_empty());
+        assert_eq!(hit_names(&run("tag:tinmen")), ["orc"]);
+        assert_eq!(hit_names(&run("tag:tinmen orc.stl")), ["orc.stl"]);
+        assert!(run("tag:tinmen elf").hits.is_empty());
         assert!(run("tag:").hits.is_empty());
     }
 
@@ -970,13 +970,13 @@ mod tests {
     fn node_tags_lists_inherited() {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
-        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Necrons");
+        tag(&state, View::Models, &["vol", "coll"], "orc", "user", "Tinmen");
         let n = crate::commands::node_tags_impl(&state, View::Files, segs(&["vol", "coll", "orc"]), "orc.stl".into()).unwrap();
         assert!(n.own.is_empty());
-        assert_eq!(n.inherited, [InheritedTag { tag: tv("user", "necrons"), from: segs(&["vol", "coll", "orc"]) }]);
+        assert_eq!(n.inherited, [InheritedTag { tag: tv("user", "tinmen"), from: segs(&["vol", "coll", "orc"]) }]);
         // the folder itself: its own tag is own, nothing is inherited
         let n = crate::commands::node_tags_impl(&state, View::Files, segs(&["vol", "coll", "orc"]), String::new()).unwrap();
-        assert_eq!(n.own, [tv("user", "necrons")]);
+        assert_eq!(n.own, [tv("user", "tinmen")]);
         assert!(n.inherited.is_empty());
     }
 
