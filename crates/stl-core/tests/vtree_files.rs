@@ -120,3 +120,11 @@ fn loose_folder_source() {
     assert_eq!(t.nodes[f].real, [s("D:\\Vol\\A\\sub\\a.stl")]);
     assert_eq!(t.nodes[at(&t, "vol/a/sub")].real, [s("D:\\Vol\\A\\sub")]);
 }
+
+#[test]
+fn label_keeps_case() {
+    let t = build_files(&[root()], &[folder(1, "Orc Band")], &[entry(1, 1, "Orc.STL", &["Orc.STL"])]);
+    let band = at(&t, "vol/orc band");
+    assert_eq!((t.nodes[band].label.as_str(), t.nodes[band].name.as_str()), ("Orc Band", "orc band"));
+    assert_eq!(t.nodes[at(&t, "vol/orc band/orc.stl")].label, "Orc.STL");
+}

@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 
 use stl_index::scanstore;
 
-use crate::browse::{self, Listing, View};
+use crate::browse::{self, Found, Listing, SearchMode, View};
 use crate::indexer::{self, BUSY};
 use crate::state::{AppState, IndexGuard};
 use crate::thumbs::ThumbReady;
@@ -103,6 +103,31 @@ pub fn locate_impl(state: &AppState, from: View, path: &[String], to: View) -> R
 #[tauri::command(async)]
 pub fn locate(state: tauri::State<'_, AppState>, from: View, path: Vec<String>, to: View) -> Result<Vec<String>, String> {
     locate_impl(&state, from, &path, to)
+}
+
+pub fn search_impl(
+    state: &AppState,
+    view: View,
+    path: Vec<String>,
+    query: String,
+    mode: SearchMode,
+    case_sensitive: bool,
+) -> Result<Found, String> {
+    let views = state.views()?;
+    browse::search(&views, view, &path, &query, mode, case_sensitive)
+}
+
+/// The folders and files below `path` whose names match `query` (at most `SEARCH_LIMIT`).
+#[tauri::command(async)]
+pub fn search(
+    state: tauri::State<'_, AppState>,
+    view: View,
+    path: Vec<String>,
+    query: String,
+    mode: SearchMode,
+    case_sensitive: bool,
+) -> Result<Found, String> {
+    search_impl(&state, view, path, query, mode, case_sensitive)
 }
 
 #[derive(Debug, Serialize)]

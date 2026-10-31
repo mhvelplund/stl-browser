@@ -12,6 +12,8 @@
     onView,
     onAdd,
     onRescan,
+    searching,
+    onSearch,
   }: {
     nav: Nav;
     view: View;
@@ -22,6 +24,8 @@
     onView: (v: View) => void;
     onAdd: () => void;
     onRescan: () => void;
+    searching: boolean;
+    onSearch: () => void;
   } = $props();
 
   const trail = $derived(crumbs(nav.path));
@@ -60,15 +64,18 @@
     <button type="button" class="seg" class:on={view === "files"} aria-pressed={view === "files"} onclick={() => onView("files")}>Files</button>
   </div>
   <div class="group">
+    <button type="button" class="btn icon" class:on={searching} aria-label="Search" aria-pressed={searching} title="Search in this folder" onclick={onSearch}>
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.8" /><path d="M10.5 10.5 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+    </button>
     <button
       type="button"
-      class="btn"
+      class="btn icon"
       disabled={busy}
+      aria-label={nav.path.length ? "Rescan folder" : "Rescan all"}
       title={nav.path.length ? "Rescan this folder and the folders in it" : "Rescan every indexed folder"}
       onclick={onRescan}
     >
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5V5h-2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-      {nav.path.length ? "Rescan folder" : "Rescan all"}
+      <span class="glyph" aria-hidden="true">🗘</span>
     </button>
     <button type="button" class="btn primary" disabled={busy} onclick={onAdd}>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
@@ -123,6 +130,13 @@
     width: 36px;
     padding: 0;
     justify-content: center;
+  }
+  .btn.on {
+    background: var(--ctl-line);
+    color: var(--text-strong);
+  }
+  .glyph {
+    font: 18px/1 "Segoe UI Symbol", sans-serif;
   }
   .btn.primary {
     background: var(--accent);

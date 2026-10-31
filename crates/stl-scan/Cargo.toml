@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 crc32fast = "1.5.3"
 sevenz-rust2 = "0.24.1"
-stl-core = { version = "0.3.0", path = "../stl-core" }
+stl-core = { path = "../stl-core" }
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 unrar = "0.5.8"

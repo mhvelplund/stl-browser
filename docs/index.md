@@ -33,7 +33,8 @@ anything out to Explorer to extract it.
 | 5. Thumbnails: cache, queue, image + STL/OBJ renderer, carousel                              | done                                          |
 | 6. Drag-out: Windows virtual-file drag, plus "Extract to…"                                   | done                                          |
 | 6.5. Usability pass: stop buttons, folder rescans, view-switch place, open files, STL pictures | done (branch `usability-pass`)              |
-| 7. Tags, search, filters                                                                     | later (only the database tables exist so far) |
+| 7. Search: name search with Free/Word/Regexp, scoped to the open folder                      | built (branch `m7-search`), manual check due  |
+| 8. Tags and filters                                                                          | later (only the database tables exist so far) |
 
 Milestones 1–2 were checked against the real `D:\Models\Sci-Fi Collection Vol.1`. The scan found 45 sources and
 18,050 files (1,243 of them in nested archives) with 0 errors, the same as the prototype. It takes about 35 s, and a
@@ -209,10 +210,15 @@ prints either view.
   index worker rebuilds them after each run and swaps them in before it sends `index-done`.
 - **`list_folder`** takes the path as name segments (a name may contain `/`), and lists the deepest folder that still
   exists. The returned `path` says where it ended up, so the UI follows when a folder vanished in a rescan.
-- **UI:** toolbar (Back, Up, breadcrumbs, Models | Files, Rescan all, Add folder), a title row with counts, a virtualized
+- **UI:** toolbar (Back, Up, breadcrumbs, Models | Files, Search, Rescan (🗘), Add folder), a title row with counts, a virtualized
   grid of tiles (min 200 px, square art, name, caption) and a status bar (stats, missing folders, the selected item's
   real path, index progress). Placeholder art per kind until thumbnails; a box-with-padlock for locked archives.
   Double-click or Enter opens; Backspace / Alt+Up goes up; Alt+Left goes back (Back restores the scroll position).
+- **Search:** the magnifying glass opens a bar under the toolbar that searches the open folder and everything below
+  it. Free (letters in order, the default), Word (one piece) or Regexp; Aa (case) only in the Files view, whose names
+  keep their case. Typing swaps the grid for a list of matches (kind icon, highlighted name, where it is); a folder
+  opens in the browser and closes search, a file opens in its app. Esc closes the bar. Matching runs in Rust on the
+  cached view tree (`stl_core::vtree::search`, `search` command), at most 1000 results.
 
 ## Decisions
 
@@ -251,6 +257,14 @@ prints either view.
     Rescan does the same for a folder tile.
   - Switching between Models and Files keeps you at, or near, the same place.
   - Double-clicking a file opens it in its Windows app.
+- **Releases are automatic** *(added during milestone 7)*. Every push to `main` runs `.github/workflows/release.yml`:
+  - Commitizen (`.cz.toml`) picks the next version from the conventional commits since the last tag. It writes it to
+    `Cargo.toml`, `Cargo.lock`, `tauri.conf.json`, `package.json` and `package-lock.json`, updates `CHANGELOG.md`, and
+    commits and tags as the `commitizen-ci` GitHub App (client ID in the `CZ_APP_CLIENT_ID` variable, key in the
+    `CZ_APP_PRIVATE_KEY` secret).
+  - A version set by hand that has no tag yet is released as it is (this is how 0.3.0 ships).
+  - A Windows runner builds the exe and the NSIS installer and attaches them to a new GitHub release.
+  - Internal path dependencies no longer pin a `version`, so a bump doesn't break them.
 
 ### Made by me (correct any that are wrong)
 

@@ -40,6 +40,23 @@ export type Listing = {
   items: Item[];
 };
 
+export type SearchMode = "free" | "word" | "regexp";
+
+/** A search result; `parent` is the folder that lists it. `marks` are code-point ranges into `name`. */
+export type Hit = {
+  name: string;
+  kind: string;
+  key: string;
+  real: string[];
+  fileKind: string | null;
+  openable: boolean;
+  parent: string[];
+  marks: [number, number][];
+};
+
+/** `path` is the scope actually searched (it falls back when a folder vanished). */
+export type Found = { path: string[]; hits: Hit[]; truncated: boolean };
+
 export type RootInfo = { id: number; name: string; path: string; missing: boolean };
 
 export type Status = { roots: RootInfo[]; models: number; files: number; indexing: boolean };
@@ -87,6 +104,9 @@ export const listFolder = (view: View, path: string[]) => invoke<Listing>("list_
 export const locate = (from: View, path: string[], to: View) => invoke<string[]>("locate", { from, path, to });
 /** Open a file in its Windows app (extracted to a temp folder first if it is in an archive). */
 export const openFile = (view: View, path: string[], name: string) => invoke<void>("open_file", { view, path, name });
+/** The folders and files below `path` whose names match `query`. */
+export const search = (view: View, path: string[], query: string, mode: SearchMode, caseSensitive: boolean) =>
+  invoke<Found>("search", { view, path, query, mode, caseSensitive });
 export const status = () => invoke<Status>("status");
 export const addFolder = (path: string) => invoke<RootInfo>("add_folder", { path });
 /** Rescan the folder at `path` (everything at the library root). */

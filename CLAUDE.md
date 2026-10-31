@@ -81,6 +81,10 @@ bookkeeping for the regenerable `~/.stl-browser/thumbs/` cache; its rows cascade
 
 - **Schema changes go through `MIGRATIONS` in `crates/stl-index/src/db.rs`**: append a step, bump `SCHEMA_VERSION`,
   update `crates/stl-index/tests/db.rs`.
+- **Commitizen owns the version.** Every push to `main` bumps it from the conventional commits, updates `CHANGELOG.md`
+  and publishes a release (`.github/workflows/release.yml`, `.cz.toml`). Don't bump versions or edit `CHANGELOG.md` by
+  hand, keep commit messages conventional, and don't pin a `version` on internal path dependencies.
+  `uvx --from commitizen cz bump --dry-run` shows the next bump.
 - **Release profile uses `panic = "unwind"` on purpose** so archive-parser panics become source errors. Don't switch to
   `abort`.
 - **Password-protected archives are never opened or decrypted**: detect from headers, store `locked = 1` with no
