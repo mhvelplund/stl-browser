@@ -9,10 +9,10 @@
   import { extractHint } from "#lib/extractrun.ts";
   import { requests, slotKey, slots } from "#lib/carousel.ts";
   import { idle, step, type Run, type RunEvent } from "#lib/indexrun.ts";
-  import { folderSummary } from "#lib/items.ts";
+  import { exportTargets as targetsOf, folderSummary } from "#lib/items.ts";
   import { hitId, whereShort } from "#lib/search.ts";
   import { goBack, goTo, open, settle, start, up, type Nav } from "#lib/nav.ts";
-  import { all, band, click, empty, focus, NONE, prune, type Mods, type Selection } from "#lib/selection.ts";
+  import { all, band, click, empty, focus, NONE, prune, sameIds, type Mods, type Selection } from "#lib/selection.ts";
   import ResultList from "#lib/ResultList.svelte";
   import SearchBar from "#lib/SearchBar.svelte";
   import StatusBar from "#lib/StatusBar.svelte";
@@ -347,12 +347,15 @@
 
   /** A rubber band in the grid or the list: `fresh` marks its start. */
   function bandSelect(ids: string[], ctrl: boolean, fresh: boolean) {
+    // only a change re-renders (and reloads the tag panel)
     if (showingResults) {
       if (fresh) bandBase = hitSel;
-      hitSel = band(bandBase, ids, ctrl);
+      const next = band(bandBase, ids, ctrl);
+      if (!sameIds(next, hitSel)) hitSel = next;
     } else {
       if (fresh) bandBase = sel;
-      sel = band(bandBase, ids, ctrl);
+      const next = band(bandBase, ids, ctrl);
+      if (!sameIds(next, sel)) sel = next;
     }
     notice = "";
   }
@@ -362,10 +365,9 @@
     else sel = empty;
   }
 
-  /** The selected tiles (or hits) to drag or extract, locked ones left out. */
+  /** The selected tiles (or hits) to drag or extract. */
   function exportTargets(): Target[] {
-    const items: { name: string; kind: string; parent?: string[] }[] = showingResults ? selectedHits : selectedItems;
-    return items.filter((i) => i.kind !== "locked").map((i) => ({ path: i.parent ?? nav.path, name: i.name }));
+    return showingResults ? targetsOf(selectedHits, (h) => h.parent) : targetsOf(selectedItems, () => nav.path);
   }
 
   /** Drag a tile out to Explorer, with the rest of the selection when it is selected: Rust runs

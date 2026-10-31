@@ -50,6 +50,11 @@ export function prune(s: Selection, order: readonly string[]): Selection {
   };
 }
 
+/** The same ids selected (the anchor aside). */
+export function sameIds(a: Selection, b: Selection): boolean {
+  return a.ids.size === b.ids.size && [...a.ids].every((id) => b.ids.has(id));
+}
+
 /** Right-click / drag start on `id`: keep `s` if `id` is in it, else just `id`. */
 export function focus(s: Selection, id: string): Selection {
   return s.ids.has(id) ? s : one(id);

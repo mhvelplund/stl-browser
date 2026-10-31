@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { all, band, click, empty, focus, prune, type Selection } from "./selection.ts";
+import { all, band, click, empty, focus, prune, sameIds, type Selection } from "./selection.ts";
 
 const order = ["a", "b", "c", "d", "e"];
 const plain = { ctrl: false, shift: false };
@@ -63,4 +63,11 @@ test("focus keeps a selection that holds the item, else selects just it", () => 
   const f = focus(sel(["a", "b"], "a"), "c");
   assert.deepEqual(ids(f), ["c"]);
   assert.equal(f.anchor, "c");
+});
+
+test("sameIds compares the selected ids, not the objects", () => {
+  assert.equal(sameIds(sel(["a", "b"], "a"), sel(["b", "a"], null)), true);
+  assert.equal(sameIds(sel(["a"], "a"), sel(["a", "b"], "a")), false);
+  assert.equal(sameIds(sel(["a", "c"], "a"), sel(["a", "b"], "a")), false);
+  assert.equal(sameIds(empty, sel([], null)), true);
 });

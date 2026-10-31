@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import * as api from "./api";
   import type { EditOp, NodeTags, Owner, Tag, TagKind, Target, TargetTags, View } from "./api";
   import { groupByKind, KIND_LABEL, mergeTags, removalAction, type MergedTag } from "./tags";
@@ -45,6 +46,8 @@
 
   /** Several selected: their tags merged, shared ones solid and the rest faded. */
   const multi = $derived(targets.length > 1);
+  /** Changes only when the targets do (a new array with the same items doesn't reload). */
+  const targetsKey = $derived(JSON.stringify(targets));
   let many = $state<TargetTags[] | null>(null);
   const merged = $derived(many ? mergeTags(many) : null);
   const mergedGroups = $derived(merged ? (groupByKind(merged.tags) as [TagKind, MergedTag[]][]) : []);
@@ -92,8 +95,8 @@
 
   $effect(() => {
     // reload when the target changes
-    void [view, path, name, targets];
-    reload();
+    void [view, path, name, targetsKey];
+    untrack(reload);
   });
 
   $effect(() => {

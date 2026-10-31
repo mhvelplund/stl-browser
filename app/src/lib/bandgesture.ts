@@ -43,10 +43,12 @@ export function bandGesture(el: () => HTMLElement | undefined, o: BandOpts) {
     cancelAnimationFrame(raf);
     const b = box.getBoundingClientRect();
     const dy = pointer.y < b.top + EDGE ? -STEP : pointer.y > b.bottom - EDGE ? STEP : 0;
-    if (dy) {
+    const room = dy < 0 ? box.scrollTop > 0 : box.scrollTop + box.clientHeight < box.scrollHeight;
+    if (dy && room) {
       raf = requestAnimationFrame(() => {
+        const was = box.scrollTop;
         box.scrollTop += dy;
-        update();
+        if (box.scrollTop !== was) update(); // at a scroll limit: wait for the pointer to move
       });
     }
   }

@@ -181,6 +181,7 @@
 <style>
   .scroller {
     position: relative;
+    user-select: none; /* a rubber band would select the names */
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { folderSummary, subtitle } from "./items.ts";
+import { exportTargets, folderSummary, subtitle } from "./items.ts";
 import type { Item, Listing } from "./api.ts";
 
 const base: Item = {
@@ -44,4 +44,17 @@ test("folder summary", () => {
   assert.equal(folderSummary(l, "models"), "2 models · 1 image · 5 files");
   assert.equal(folderSummary({ ...l, view: "files" }, "files"), "2 items · 5 files");
   assert.equal(folderSummary({ ...l, models: 0 }, "models"), "1 image · 5 files");
+});
+
+test("export targets keep locked items (Rust counts them as left out) unless all are locked", () => {
+  const items = [
+    { name: "a", kind: "model", path: ["x"] },
+    { name: "b", kind: "locked", path: ["y"] },
+  ];
+  assert.deepEqual(exportTargets(items, (i) => i.path), [
+    { path: ["x"], name: "a" },
+    { path: ["y"], name: "b" },
+  ]);
+  assert.deepEqual(exportTargets([items[1]], (i) => i.path), []);
+  assert.deepEqual(exportTargets([], (i: { name: string; kind: string }) => []), []);
 });
