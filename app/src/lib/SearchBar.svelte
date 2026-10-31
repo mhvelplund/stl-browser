@@ -7,6 +7,7 @@
     query = $bindable(),
     mode = $bindable(),
     caseSensitive = $bindable(),
+    asList = $bindable(),
     showCase,
     scope,
     error,
@@ -16,6 +17,8 @@
     query: string;
     mode: SearchMode;
     caseSensitive: boolean;
+    /** Show the results as a compact list instead of tiles. */
+    asList: boolean;
     /** Only the Files view keeps the case of names; the Models view's are lowercase. */
     showCase: boolean;
     scope: string[];
@@ -51,6 +54,23 @@
   {#if showCase}
     <button type="button" class="case" class:on={caseSensitive} aria-pressed={caseSensitive} aria-label="Match case" title="Match case" onclick={() => (caseSensitive = !caseSensitive)}>Aa</button>
   {/if}
+  <button
+    type="button"
+    class="case layout"
+    aria-label={asList ? "Show results as tiles" : "Show results as a list"}
+    title={asList ? "Show results as tiles" : "Show results as a list"}
+    onclick={() => (asList = !asList)}
+  >
+    {#if asList}
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6">
+        <rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" /><rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" />
+      </svg>
+    {:else}
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+      </svg>
+    {/if}
+  </button>
   <span class="scope" title={scope.join("/")}>{scopeLabel(scope)}</span>
   {#if error}
     <span class="error">{error}</span>
@@ -109,6 +129,13 @@
     border: 1px solid var(--ctl-line);
     border-radius: 8px;
     background: var(--ctl);
+  }
+  .layout {
+    width: 34px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .seg.on,
   .case.on {

@@ -29,6 +29,8 @@
   } = $props();
 
   const trail = $derived(crumbs(nav.path));
+  const other: View = $derived(view === "models" ? "files" : "models");
+  const toggleLabel = $derived(`Switch to ${other === "models" ? "Models" : "Files"}?`);
   let bar: HTMLElement | undefined = $state();
 
   // keep the current folder in view when the path is longer than the bar
@@ -59,11 +61,19 @@
       <button type="button" class="crumb" class:last={i === trail.length - 1} aria-current={i === trail.length - 1 ? "page" : undefined} onclick={() => onCrumb(c.path)}>{c.name}</button>
     {/each}
   </nav>
-  <div class="seg-group" role="group" aria-label="View">
-    <button type="button" class="seg" class:on={view === "models"} aria-pressed={view === "models"} onclick={() => onView("models")}>Models</button>
-    <button type="button" class="seg" class:on={view === "files"} aria-pressed={view === "files"} onclick={() => onView("files")}>Files</button>
-  </div>
   <div class="group">
+    <!-- shows the view it switches to: a box for Models, a page for Files -->
+    <button type="button" class="btn icon" aria-label={toggleLabel} title={toggleLabel} onclick={() => onView(other)}>
+      {#if other === "models"}
+        <svg width="16" height="16" viewBox="0 0 26 26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round">
+          <path d="M13 2 23 7.5v11L13 24 3 18.5v-11z" /><path d="M3 7.5 13 13l10-5.5M13 13v11" />
+        </svg>
+      {:else}
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2.5" y="2" width="11" height="12" rx="1" /><path d="M5 5.5h6M5 8h6M5 10.5h6" />
+        </svg>
+      {/if}
+    </button>
     <button type="button" class="btn icon" class:on={searching} aria-label="Search" aria-pressed={searching} title="Search in this folder" onclick={onSearch}>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.8" /><path d="M10.5 10.5 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
     </button>
@@ -184,28 +194,5 @@
   .crumb.last {
     color: var(--text-strong);
     font-weight: 500;
-  }
-  .seg-group {
-    display: flex;
-    gap: 2px;
-    padding: 3px;
-    border-radius: 8px;
-    background: var(--ctl);
-    border: 1px solid var(--ctl-line);
-  }
-  .seg {
-    height: 30px;
-    padding: 0 14px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--muted);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .seg.on {
-    background: var(--ctl-line);
-    color: var(--text-strong);
   }
 </style>

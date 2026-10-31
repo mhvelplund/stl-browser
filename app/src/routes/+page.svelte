@@ -10,7 +10,7 @@
   import { requests, slotKey, slots } from "#lib/carousel.ts";
   import { idle, step, type Run, type RunEvent } from "#lib/indexrun.ts";
   import { folderSummary } from "#lib/items.ts";
-  import { hitId } from "#lib/search.ts";
+  import { hitId, whereShort } from "#lib/search.ts";
   import { goBack, goTo, open, settle, start, up, type Nav } from "#lib/nav.ts";
   import ResultList from "#lib/ResultList.svelte";
   import SearchBar from "#lib/SearchBar.svelte";
@@ -29,6 +29,8 @@
   let error = $state("");
   /** Scroll to restore when the next listing arrives. */
   let restore = $state(0);
+  /** A tile to scroll into view when the next listing arrives (a file opened from search). */
+  let reveal = $state<string | null>(null);
   /** The grid's current scroll position (not reactive: only read when navigating). */
   let scroll = 0;
   let seq = 0;
@@ -52,7 +54,26 @@
   let found = $state<Found | null>(null);
   let searchError = $state("");
   let selectedHit = $state<Hit | null>(null);
+  /** Results as the compact list instead of tiles; remembered in this browser. */
+  let asList = $state(readAsList());
   let searchSeq = 0;
+
+  function readAsList(): boolean {
+    try {
+      return localStorage.getItem("results-as-list") === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  $effect(() => {
+    const v = asList ? "1" : "0";
+    try {
+      localStorage.setItem("results-as-list", v);
+    } catch {
+      // storage unavailable: the choice lasts for this session
+    }
+  });
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let thumbTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -60,8 +81,9 @@
   function askThumbs() {
     clearTimeout(thumbTimer);
     thumbTimer = setTimeout(async () => {
-      if (!listing) return;
-      const r = requests(listing.items, chosen, visible);
+      const items = showingResults ? (asList ? [] : (found?.hits ?? [])) : listing?.items;
+      if (!items) return;
+      const r = requests(items, chosen, visible);
       try {
         const got = await api.requestThumbs(r.high, r.low);
         for (const t of got.ready) urls.set(t.entryId, t.url);
@@ -82,13 +104,15 @@
   const usage =
     "Double-click a tile to open it · Backspace or the mouse Back button goes up · hover a tile to see where it really is";
 
-  /** List `next.path`; a stale response (the user moved on) is dropped. */
-  async function load(next: Nav, scrollTo = 0, keepSelection = false) {
+  /** List `next.path`; a stale response (the user moved on) is dropped. `show` names a tile to
+   * scroll into view instead of restoring `scrollTo`. */
+  async function load(next: Nav, scrollTo = 0, keepSelection = false, show: string | null = null) {
     const my = ++seq;
     try {
       const l = await api.listFolder(view, next.path);
       if (my !== seq) return;
       nav = settle(next, l.path);
+      reveal = show;
       listing = l;
       chosen.clear();
       askThumbs();
@@ -142,6 +166,7 @@
         searchError = "";
         const was = selectedHit && hitId(selectedHit);
         selectedHit = f.hits.find((h) => hitId(h) === was) ?? null;
+        askThumbs();
       } catch (e) {
         if (my !== searchSeq) return;
         searchError = String(e);
@@ -161,13 +186,21 @@
     if (showingResults) restore = scroll;
   });
 
-  /** A folder hit opens in the browser (closing search); a file hit in its Windows app. */
+  /** Double-click or Enter on a hit closes search: a folder opens in the browser, a file is
+   * shown selected in its folder. */
   function openHit(h: Hit) {
-    if (h.openable) {
-      const to = [...h.parent, h.name];
-      closeSearch();
-      load(goTo(nav, to, scroll));
-    } else if (h.kind !== "locked") launch(h, h.parent);
+    closeSearch();
+    if (h.openable) load(goTo(nav, [...h.parent, h.name], scroll));
+    else {
+      selected = h.name;
+      load(goTo(nav, h.parent, scroll), 0, true, h.name);
+    }
+  }
+
+  /** "Open" in a hit's menu: a folder opens in the browser, a file in its Windows app. */
+  function launchHit(h: Hit) {
+    if (h.openable) openHit(h);
+    else if (h.kind !== "locked") launch(h, h.parent);
   }
 
   function selectHit(h: Hit) {
@@ -321,7 +354,7 @@
   function showMenu(item: Item | Hit, x: number, y: number) {
     const entries: Entry[] = [];
     const hit = "parent" in item ? item : null;
-    if (item.kind !== "locked") entries.push({ label: "Open", action: () => (hit ? openHit(hit) : openItem(item as Item)) });
+    if (item.kind !== "locked") entries.push({ label: "Open", action: () => (hit ? launchHit(hit) : openItem(item as Item)) });
     if (item.kind !== "locked") entries.push({ label: "Extract to…", action: () => extract(item, hit?.parent) });
     if (hit) {
       menu = entries.length ? { x, y, entries } : null;
@@ -391,6 +424,7 @@
     ];
     refreshStatus().then(() => {
       if (status?.indexing && !run.busy) apply({ type: "start", hint: "Indexing…" });
+      else if (status?.configWarning) run = { ...run, hint: status.configWarning };
     });
     load(nav);
     return () => unlisten.forEach((u) => u.then((f) => f()));
@@ -418,6 +452,7 @@
       bind:query
       bind:mode
       bind:caseSensitive
+      bind:asList
       showCase={view === "files"}
       {scope}
       error={searchError}
@@ -427,7 +462,29 @@
   {/if}
   <main>
     {#if showingResults}
-      {#if found?.hits.length}
+      {#if found?.hits.length && !asList}
+        <TileGrid
+          items={found.hits}
+          {view}
+          idOf={hitId}
+          selected={selectedHit ? hitId(selectedHit) : null}
+          scroll={0}
+          captionOf={(h) => whereShort(h.parent, scope)}
+          marksOf={(h) => h.marks}
+          onSelect={selectHit}
+          onOpen={openHit}
+          onScroll={() => (menu = null)}
+          onDragOut={dragHit}
+          onMenu={showMenu}
+          {urls}
+          {chosen}
+          onSlot={pickSlot}
+          onVisible={(r) => {
+            visible = r;
+            askThumbs();
+          }}
+        />
+      {:else if found?.hits.length}
         <ResultList
           hits={found.hits}
           {scope}
@@ -459,6 +516,7 @@
           {view}
           {selected}
           scroll={restore}
+          {reveal}
           onSelect={select}
           onOpen={openItem}
           onScroll={(t) => {

@@ -42,14 +42,9 @@ export type Listing = {
 
 export type SearchMode = "free" | "word" | "regexp";
 
-/** A search result; `parent` is the folder that lists it. `marks` are code-point ranges into `name`. */
-export type Hit = {
-  name: string;
-  kind: string;
-  key: string;
-  real: string[];
-  fileKind: string | null;
-  openable: boolean;
+/** A search result: the tile its folder would show, and `parent`, the folder that lists it.
+ * `marks` are code-point ranges into `name`. */
+export type Hit = Item & {
   parent: string[];
   marks: [number, number][];
 };
@@ -59,7 +54,14 @@ export type Found = { path: string[]; hits: Hit[]; truncated: boolean };
 
 export type RootInfo = { id: number; name: string; path: string; missing: boolean };
 
-export type Status = { roots: RootInfo[]; models: number; files: number; indexing: boolean };
+export type Status = {
+  roots: RootInfo[];
+  models: number;
+  files: number;
+  indexing: boolean;
+  /** Why `config.yaml` was ignored (the defaults apply), if it was. */
+  configWarning: string | null;
+};
 
 export type IndexProgress = { index: number; total: number; name: string };
 
