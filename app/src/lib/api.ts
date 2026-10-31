@@ -127,7 +127,10 @@ export const requestThumbs = (high: number[], low: number[]) =>
 export const selectThumb = (nodeKey: string, imageKey: string) => invoke<void>("select_thumb", { nodeKey, imageKey });
 
 export type InheritedTag = { tag: Tag; from: string[] };
-export type NodeTags = { own: Tag[]; inherited: InheritedTag[]; hidden: Tag[] };
+/** A node by its name and the path of the folder that lists it. */
+export type Owner = { name: string; path: string[] };
+/** `owner` is set when the node shares its folder with the node above: tag that one instead. */
+export type NodeTags = { own: Tag[]; inherited: InheritedTag[]; hidden: Tag[]; owner: Owner | null };
 
 export const nodeTags = (view: View, path: string[], name: string) => invoke<NodeTags>("node_tags", { view, path, name });
 export const addTag = (view: View, path: string[], name: string, kind: TagKind, tag: string) =>
@@ -140,7 +143,7 @@ export const unhideTag = (view: View, path: string[], name: string, kind: TagKin
   invoke<void>("unhide_tag", { view, path, name, kind, tag });
 export const allTags = () => invoke<Tag[]>("all_tags");
 
-export const beginDrag =(view: View, path: string[], names: string[]) => invoke<DragInfo>("begin_drag", { view, path, names });
+export const beginDrag = (view: View, path: string[], names: string[]) => invoke<DragInfo>("begin_drag", { view, path, names });
 export const extractTo = (view: View, path: string[], names: string[], dest: string) =>
   invoke<void>("extract_to", { view, path, names, dest });
 

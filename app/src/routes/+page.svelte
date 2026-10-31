@@ -215,10 +215,14 @@
   function openHit(h: Hit) {
     closeSearch();
     if (h.openable) load(goTo(nav, [...h.parent, h.name], scroll));
-    else {
-      selected = h.name;
-      load(goTo(nav, h.parent, scroll), 0, true, h.name);
-    }
+    else showIn(h.parent, h.name);
+  }
+
+  /** Go to the folder at `path` with its tile `name` selected and scrolled into view. */
+  function showIn(path: string[], name: string) {
+    leaveSearch();
+    selected = name;
+    load(goTo(nav, path, scroll), 0, true, name);
   }
 
   /** "Open" in a hit's menu: a folder opens in the browser, a file in its Windows app. */
@@ -403,7 +407,7 @@
 
   function onKey(e: KeyboardEvent) {
     const t = e.target as HTMLElement | null;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
     if ((e.key === "Backspace" && !e.altKey) || (e.altKey && e.key === "ArrowUp")) {
       e.preventDefault();
       goUp();
@@ -444,7 +448,7 @@
     if (searching) runSearch();
   }
 
-  const footerHint =$derived(notice || (shownReal ? shownReal.join(" | ") : run.hint || usage));
+  const footerHint = $derived(notice || (shownReal ? shownReal.join(" | ") : run.hint || usage));
   const noRoots = $derived(status !== null && status.roots.length === 0);
 
   onMount(() => {
@@ -502,96 +506,97 @@
     />
   {/if}
   <div class="body">
-  <main>
-    {#if showingResults}
-      {#if found?.hits.length && !asList}
-        <TileGrid
-          items={found.hits}
-          {view}
-          idOf={hitId}
-          selected={selectedHit ? hitId(selectedHit) : null}
-          scroll={0}
-          captionOf={(h) => whereShort(h.parent, scope)}
-          marksOf={(h) => h.marks}
-          onSelect={selectHit}
-          onOpen={openHit}
-          onScroll={() => (menu = null)}
-          onDragOut={dragHit}
-          onMenu={showMenu}
-          {urls}
-          {chosen}
-          onSlot={pickSlot}
-          onVisible={(r) => {
-            visible = r;
-            askThumbs();
-          }}
-        />
-      {:else if found?.hits.length}
-        <ResultList
-          hits={found.hits}
-          {scope}
-          selected={selectedHit ? hitId(selectedHit) : null}
-          onSelect={selectHit}
-          onOpen={openHit}
-          onDragOut={dragHit}
-          onMenu={showMenu}
-        />
-      {:else if found && !searchError}
-        <p class="empty">No matches</p>
+    <main>
+      {#if showingResults}
+        {#if found?.hits.length && !asList}
+          <TileGrid
+            items={found.hits}
+            {view}
+            idOf={hitId}
+            selected={selectedHit ? hitId(selectedHit) : null}
+            scroll={0}
+            captionOf={(h) => whereShort(h.parent, scope)}
+            marksOf={(h) => h.marks}
+            onSelect={selectHit}
+            onOpen={openHit}
+            onScroll={() => (menu = null)}
+            onDragOut={dragHit}
+            onMenu={showMenu}
+            {urls}
+            {chosen}
+            onSlot={pickSlot}
+            onVisible={(r) => {
+              visible = r;
+              askThumbs();
+            }}
+          />
+        {:else if found?.hits.length}
+          <ResultList
+            hits={found.hits}
+            {scope}
+            selected={selectedHit ? hitId(selectedHit) : null}
+            onSelect={selectHit}
+            onOpen={openHit}
+            onDragOut={dragHit}
+            onMenu={showMenu}
+          />
+        {:else if found && !searchError}
+          <p class="empty">No matches</p>
+        {/if}
+      {:else if error}
+        <p class="empty error">Could not list this folder: {error}</p>
+      {:else if noRoots && !busy}
+        <div class="empty">
+          <h1>No folders yet</h1>
+          <p>Add a folder of STL files or archives to start browsing.</p>
+          <button type="button" class="add" onclick={addFolder}>Add folder</button>
+        </div>
+      {:else if listing}
+        <div class="title" title={listing.real.join("\n")}>
+          <h1>{listing.name || "Library"}</h1>
+          <span>{folderSummary(listing, view)}</span>
+        </div>
+        {#if listing.items.length}
+          <TileGrid
+            items={listing.items}
+            {view}
+            {selected}
+            scroll={restore}
+            {reveal}
+            onSelect={select}
+            onOpen={openItem}
+            onScroll={(t) => {
+              scroll = t;
+              menu = null;
+            }}
+            onDragOut={dragOut}
+            onMenu={showMenu}
+            {urls}
+            {chosen}
+            onSlot={pickSlot}
+            onVisible={(r) => {
+              visible = r;
+              askThumbs();
+            }}
+          />
+        {:else}
+          <p class="empty">{busy ? "Indexing…" : "This folder is empty"}</p>
+        {/if}
       {/if}
-    {:else if error}
-      <p class="empty error">Could not list this folder: {error}</p>
-    {:else if noRoots && !busy}
-      <div class="empty">
-        <h1>No folders yet</h1>
-        <p>Add a folder of STL files or archives to start browsing.</p>
-        <button type="button" class="add" onclick={addFolder}>Add folder</button>
-      </div>
-    {:else if listing}
-      <div class="title" title={listing.real.join("\n")}>
-        <h1>{listing.name || "Library"}</h1>
-        <span>{folderSummary(listing, view)}</span>
-      </div>
-      {#if listing.items.length}
-        <TileGrid
-          items={listing.items}
+    </main>
+    {#if tagsOpen}
+      <aside aria-label="Tags">
+        <TagPanel
           {view}
-          {selected}
-          scroll={restore}
-          {reveal}
-          onSelect={select}
-          onOpen={openItem}
-          onScroll={(t) => {
-            scroll = t;
-            menu = null;
-          }}
-          onDragOut={dragOut}
-          onMenu={showMenu}
-          {urls}
-          {chosen}
-          onSlot={pickSlot}
-          onVisible={(r) => {
-            visible = r;
-            askThumbs();
-          }}
+          path={tagTarget.path}
+          name={tagTarget.name}
+          title={tagTitle}
+          onchange={tagsChanged}
+          onerror={(m) => (notice = m)}
+          onowner={(o) => showIn(o.path, o.name)}
         />
-      {:else}
-        <p class="empty">{busy ? "Indexing…" : "This folder is empty"}</p>
-      {/if}
+      </aside>
     {/if}
-  </main>
-  {#if tagsOpen}
-    <aside aria-label="Tags">
-      <TagPanel
-        {view}
-        path={tagTarget.path}
-        name={tagTarget.name}
-        title={tagTitle}
-        onchange={tagsChanged}
-        onerror={(m) => (notice = m)}
-      />
-    </aside>
-  {/if}
   </div>
   <StatusBar
     {status}

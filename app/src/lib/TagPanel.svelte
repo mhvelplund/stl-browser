@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as api from "./api";
-  import type { NodeTags, Tag, TagKind, View } from "./api";
+  import type { NodeTags, Owner, Tag, TagKind, View } from "./api";
   import { groupByKind, KIND_LABEL, removalAction } from "./tags";
   import TagPill from "./TagPill.svelte";
 
@@ -11,6 +11,7 @@
     title,
     onchange,
     onerror,
+    onowner,
   }: {
     view: View;
     /** The folder holding the target (the folder itself when `name` is empty). */
@@ -20,6 +21,8 @@
     /** Called after an edit, so the listing and any search reload. */
     onchange: () => void;
     onerror: (message: string) => void;
+    /** Show the owner of a node that shares its folder with it. */
+    onowner: (owner: Owner) => void;
   } = $props();
 
   const SETTABLE: TagKind[] = ["user", "support", "scale", "creator"];
@@ -33,6 +36,8 @@
   /** The library root can't be tagged. */
   const taggable = $derived(path.length > 0 || name !== "");
   const groups = $derived(data ? groupByKind(data.own) : []);
+  /** Set when the target shares its folder with the node above: that one is tagged instead. */
+  const owner = $derived(data?.owner ?? null);
   const suggestions = $derived([...new Set(known.filter((t) => t.kind === kind).map((t) => t.name))].sort());
 
   async function reload() {
@@ -70,16 +75,18 @@
     loadKnown();
   });
 
-  async function edit(what: string, call: () => Promise<void>) {
+  /** Run an edit; `true` when it went through. */
+  async function edit(what: string, call: () => Promise<void>): Promise<boolean> {
     try {
       await call();
     } catch (e) {
       onerror(`Could not ${what}: ${e}`);
-      return;
+      return false;
     }
     await reload();
     loadKnown();
     onchange();
+    return true;
   }
 
   function remove(t: Tag) {
@@ -95,8 +102,7 @@
     e.preventDefault();
     const value = text.trim();
     if (!value) return;
-    text = "";
-    await edit(`add ${value}`, () => api.addTag(view, path, name, kind, value));
+    if (await edit(`add ${value}`, () => api.addTag(view, path, name, kind, value))) text = "";
   }
 </script>
 
@@ -105,6 +111,14 @@
   {#if !taggable}
     <p class="hint">Select a folder or a model to tag it.</p>
   {:else}
+    {#if owner}
+      {@const o = owner}
+      <p class="hint">
+        Shares its folder with <button type="button" class="link" title="Select {o.name}" onclick={() => onowner(o)}
+          >{o.name}</button
+        >; tag {o.name} instead
+      </p>
+    {/if}
     <section>
       <h3>Tags</h3>
       {#if groups.length}
@@ -113,7 +127,7 @@
             <span class="kind">{KIND_LABEL[k]}</span>
             <span class="pills">
               {#each tags as t (t.name)}
-                <TagPill tag={t} removable onremove={remove} />
+                <TagPill tag={t} removable disabled={!!owner} onremove={remove} />
               {/each}
             </span>
           </div>
@@ -122,14 +136,21 @@
         <p class="hint">No tags</p>
       {/if}
       <form class="add" onsubmit={add}>
-        <select bind:value={kind} aria-label="Tag kind">
+        <select bind:value={kind} aria-label="Tag kind" disabled={!!owner}>
           {#each SETTABLE as k (k)}<option value={k}>{KIND_LABEL[k]}</option>{/each}
         </select>
-        <input bind:value={text} list="tag-suggestions" placeholder="Add a tag" aria-label="Tag name" spellcheck="false" />
+        <input
+          bind:value={text}
+          list="tag-suggestions"
+          placeholder="Add a tag"
+          aria-label="Tag name"
+          spellcheck="false"
+          disabled={!!owner}
+        />
         <datalist id="tag-suggestions">
           {#each suggestions as s (s)}<option value={s}></option>{/each}
         </datalist>
-        <button type="submit" disabled={!text.trim()}>Add</button>
+        <button type="submit" disabled={!!owner || !text.trim()}>Add</button>
       </form>
     </section>
     {#if data?.inherited.length}
@@ -148,7 +169,7 @@
         {#each data.hidden as t (t.kind + ":" + t.name)}
           <div class="row hidden">
             <TagPill tag={t} />
-            <button type="button" class="restore" onclick={() => restore(t)}>Restore</button>
+            <button type="button" class="restore" disabled={!!owner} onclick={() => restore(t)}>Restore</button>
           </div>
         {/each}
       </section>
@@ -239,8 +260,20 @@
     padding: 0 10px;
     cursor: pointer;
   }
-  .add button:disabled {
+  .add button:disabled,
+  .add select:disabled,
+  .add input:disabled,
+  .restore:disabled {
     opacity: 0.4;
     cursor: default;
+  }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
   }
 </style>

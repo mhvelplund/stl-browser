@@ -19,6 +19,24 @@
     open = true;
   }
 
+  function hide() {
+    open = false;
+  }
+
+  // `pointerleave` may never come (an OLE drag-out swallows the pointer events): a press, a
+  // cancelled pointer, a scroll or the window losing focus close the popover too.
+  $effect(() => {
+    if (!open) return;
+    const opts = { capture: true, passive: true };
+    const events = ["pointerdown", "pointercancel", "scroll"] as const;
+    for (const e of events) window.addEventListener(e, hide, opts);
+    window.addEventListener("blur", hide);
+    return () => {
+      for (const e of events) window.removeEventListener(e, hide, opts);
+      window.removeEventListener("blur", hide);
+    };
+  });
+
   // Place the popover under the dots, right-aligned, and keep it inside the window.
   $effect(() => {
     if (!open || !host || !pop) return;
@@ -43,7 +61,7 @@
     title=""
     bind:this={host}
     onpointerenter={show}
-    onpointerleave={() => (open = false)}
+    onpointerleave={hide}
   >
     {#each kinds as k (k)}<span class="dot {k}"></span>{/each}
   </span>

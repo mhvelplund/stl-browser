@@ -4,10 +4,13 @@
   let {
     tag,
     removable = false,
+    disabled = false,
     onremove,
   }: {
     tag: Tag;
     removable?: boolean;
+    /** Show the × but don't let it remove. */
+    disabled?: boolean;
     onremove?: (t: Tag) => void;
   } = $props();
 </script>
@@ -16,6 +19,7 @@
   <span class="text">{tag.name}</span>{#if tag.byUser && tag.kind !== "user"}<span class="by" title="Set by you" aria-label="set by you">✎</span>{/if}{#if removable}<button
       type="button"
       class="x"
+      {disabled}
       aria-label={"Remove " + tag.name}
       onclick={(e) => {
         e.stopPropagation();
@@ -74,7 +78,11 @@
     cursor: pointer;
     opacity: 0.75;
   }
-  .x:hover {
+  .x:hover:not(:disabled) {
     opacity: 1;
+  }
+  .x:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
 </style>
