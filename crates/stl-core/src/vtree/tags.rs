@@ -1,7 +1,7 @@
 //! Tags: the model, generated variant tags, user overrides and the `tag:` search syntax.
 use std::collections::HashMap;
 
-use super::{Node, Tree};
+use super::{Node, NodeKind, Tree};
 
 /// The tag kinds; the derived order is the dot order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -119,8 +119,15 @@ pub fn copy_tags(models: &Tree, files: &mut Tree) {
         if n.key.starts_with("f:") {
             by_key.entry(n.key.as_str()).or_default().push(&n.info.tags);
         }
-        for k in tag_keys(n) {
-            by_real.entry(k).or_default().push(&n.info.tags);
+        let counts = match n.kind {
+            NodeKind::Model | NodeKind::Variant | NodeKind::File => true,
+            NodeKind::Group | NodeKind::Collection => !n.info.tags.is_empty(),
+            _ => false,
+        };
+        if counts {
+            for k in tag_keys(n) {
+                by_real.entry(k).or_default().push(&n.info.tags);
+            }
         }
     }
     for n in files.nodes.iter_mut().skip(1) {

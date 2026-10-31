@@ -136,3 +136,33 @@ fn copy_tags_takes_the_common_tags() {
     copy_tags(&models, &mut files);
     assert_eq!(files.nodes[1].info.tags, vec![tag(TagKind::Scale, "25mm", false)]);
 }
+
+fn add_at(t: &mut Tree, name: &str, kind: NodeKind, tags: Vec<Tag>) {
+    let id = t.add(0, name, kind);
+    t.nodes[id].real = vec!["D:/M/Orc".to_string()];
+    t.nodes[id].info.tags = tags;
+}
+
+#[test]
+fn copy_tags_ignores_untagged_structural_nodes() {
+    let sup = vec![tag(TagKind::Support, "supported", false)];
+    let mut models = Tree::new();
+    add_at(&mut models, "orc", NodeKind::Model, sup.clone());
+    add_at(&mut models, "arms", NodeKind::Part, vec![]);
+    add_at(&mut models, "images", NodeKind::Images, vec![]);
+    add_at(&mut models, "docs", NodeKind::Docs, vec![]);
+    add_at(&mut models, "grp", NodeKind::Group, vec![]);
+    let mut files = tree_with(r"d:\m\orc", "f:folder", NodeKind::Folder, vec![]);
+    copy_tags(&models, &mut files);
+    assert_eq!(files.nodes[1].info.tags, sup);
+}
+
+#[test]
+fn copy_tags_untagged_sibling_model_empties_it() {
+    let mut models = Tree::new();
+    add_at(&mut models, "a", NodeKind::Model, vec![tag(TagKind::Support, "supported", false)]);
+    add_at(&mut models, "b", NodeKind::Model, vec![]);
+    let mut files = tree_with(r"d:\m\orc", "f:folder", NodeKind::Folder, vec![]);
+    copy_tags(&models, &mut files);
+    assert!(files.nodes[1].info.tags.is_empty());
+}
