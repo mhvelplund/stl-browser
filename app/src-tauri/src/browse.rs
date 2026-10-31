@@ -391,7 +391,12 @@ pub fn search(
         View::Models => (Field::Name, false),
     };
     let m = Matcher::new(query, mode, case_sensitive)?;
-    let (found, truncated) = vtree_search(t, id, &path, &m, field, &|n| visible(shown, n), SEARCH_LIMIT);
+    let no_tags = stl_core::vtree::search::TagFilter {
+        terms: &[],
+        own: &|_| Vec::new(),
+        start: stl_core::vtree::search::Inherited::default(),
+    };
+    let (found, truncated) = vtree_search(t, id, &path, Some(&m), field, &|n| visible(shown, n), &no_tags, SEARCH_LIMIT);
     let hits = found
         .into_iter()
         .map(|h| Hit { item: item(vt, h.id, shown, selected), parent: h.parent, marks: h.marks })
