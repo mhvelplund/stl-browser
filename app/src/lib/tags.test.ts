@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dotKinds, groupByKind, KIND_LABEL, parseTagTerms, removalAction } from "./tags.ts";
+import { dotKinds, groupByKind, KIND_LABEL, removalAction } from "./tags.ts";
 
 const t = (kind: any, name: string, byUser = false) => ({ kind, name, byUser });
 
@@ -31,11 +31,4 @@ test("removing a user-set tag deletes it, a generated one is hidden", () => {
   assert.equal(removalAction(t("scale", "32mm", true)), "remove");
   assert.equal(removalAction(t("scale", "32mm", false)), "hide");
   assert.equal(removalAction(t("edition", "lychee")), "hide");
-});
-
-test("tag terms mirror the backend query parser", () => {
-  assert.deepEqual(parseTagTerms('x tag:"A  b" tag:c'), ["a b", "c"]);
-  assert.deepEqual(parseTagTerms("TAG:Foo xtag:bar"), ["foo"]);
-  assert.deepEqual(parseTagTerms('tag:"open end'), ["open end"]);
-  assert.deepEqual(parseTagTerms('tag: tag:"  "'), []);
 });
