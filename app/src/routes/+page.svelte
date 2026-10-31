@@ -15,6 +15,7 @@
   import ResultList from "#lib/ResultList.svelte";
   import SearchBar from "#lib/SearchBar.svelte";
   import StatusBar from "#lib/StatusBar.svelte";
+  import TagPanel from "#lib/TagPanel.svelte";
   import TileGrid from "#lib/TileGrid.svelte";
   import Toolbar from "#lib/Toolbar.svelte";
 
@@ -65,6 +66,26 @@
       return false;
     }
   }
+
+  /** The tag side panel open; remembered in this browser. */
+  let tagsOpen = $state(readTagPanel());
+
+  function readTagPanel(): boolean {
+    try {
+      return localStorage.getItem("tagPanel") === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  $effect(() => {
+    const v = tagsOpen ? "1" : "0";
+    try {
+      localStorage.setItem("tagPanel", v);
+    } catch {
+      // storage unavailable: the choice lasts for this session
+    }
+  });
 
   $effect(() => {
     const v = asList ? "1" : "0";
@@ -408,7 +429,22 @@
   const selectedItem = $derived(listing?.items.find((i) => i.name === selected) ?? null);
   const showingResults = $derived(searching && query !== "");
   const shownReal = $derived(showingResults ? selectedHit?.real : selectedItem?.real);
-  const footerHint = $derived(notice || (shownReal ? shownReal.join(" | ") : run.hint || usage));
+  /** What the tag panel edits: the selected hit or item, else the open folder (nothing in results without a selection). */
+  const tagTarget = $derived.by(() => {
+    if (showingResults) return selectedHit ? { path: selectedHit.parent, name: selectedHit.name } : { path: [], name: "" };
+    return { path: nav.path, name: selectedItem ? selectedItem.name : "" };
+  });
+  const tagTitle = $derived(
+    showingResults ? (selectedHit?.name ?? "") : (selectedItem?.name ?? (listing?.name || "Library")),
+  );
+
+  /** After a tag edit the listing and any open search show the new tags. */
+  function tagsChanged() {
+    load(nav, scroll, true);
+    if (searching) runSearch();
+  }
+
+  const footerHint =$derived(notice || (shownReal ? shownReal.join(" | ") : run.hint || usage));
   const noRoots = $derived(status !== null && status.roots.length === 0);
 
   onMount(() => {
@@ -449,6 +485,8 @@
     onRescan={rescan}
     {searching}
     onSearch={() => (searching ? closeSearch() : openSearch())}
+    {tagsOpen}
+    onTags={() => (tagsOpen = !tagsOpen)}
   />
   {#if searching}
     <SearchBar
@@ -463,6 +501,7 @@
       onClose={closeSearch}
     />
   {/if}
+  <div class="body">
   <main>
     {#if showingResults}
       {#if found?.hits.length && !asList}
@@ -541,6 +580,19 @@
       {/if}
     {/if}
   </main>
+  {#if tagsOpen}
+    <aside aria-label="Tags">
+      <TagPanel
+        {view}
+        path={tagTarget.path}
+        name={tagTarget.name}
+        title={tagTitle}
+        onchange={tagsChanged}
+        onerror={(m) => (notice = m)}
+      />
+    </aside>
+  {/if}
+  </div>
   <StatusBar
     {status}
     hint={footerHint}
@@ -561,11 +613,25 @@
     flex-direction: column;
     height: 100vh;
   }
-  main {
+  .body {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
+    flex-direction: row;
+  }
+  main {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
     flex-direction: column;
+  }
+  aside {
+    flex: none;
+    width: 260px;
+    overflow-y: auto;
+    border-left: 1px solid var(--line);
+    background: var(--bar);
   }
   .title {
     display: flex;

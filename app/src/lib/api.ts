@@ -126,7 +126,21 @@ export const requestThumbs = (high: number[], low: number[]) =>
   invoke<{ ready: ThumbReady[]; pending: number }>("request_thumbs", { high, low });
 export const selectThumb = (nodeKey: string, imageKey: string) => invoke<void>("select_thumb", { nodeKey, imageKey });
 
-export const beginDrag = (view: View, path: string[], names: string[]) => invoke<DragInfo>("begin_drag", { view, path, names });
+export type InheritedTag = { tag: Tag; from: string[] };
+export type NodeTags = { own: Tag[]; inherited: InheritedTag[]; hidden: Tag[] };
+
+export const nodeTags = (view: View, path: string[], name: string) => invoke<NodeTags>("node_tags", { view, path, name });
+export const addTag = (view: View, path: string[], name: string, kind: TagKind, tag: string) =>
+  invoke<void>("add_tag", { view, path, name, kind, tag });
+export const removeTag = (view: View, path: string[], name: string, kind: TagKind, tag: string) =>
+  invoke<void>("remove_tag", { view, path, name, kind, tag });
+export const hideTag = (view: View, path: string[], name: string, kind: TagKind, tag: string) =>
+  invoke<void>("hide_tag", { view, path, name, kind, tag });
+export const unhideTag = (view: View, path: string[], name: string, kind: TagKind, tag: string) =>
+  invoke<void>("unhide_tag", { view, path, name, kind, tag });
+export const allTags = () => invoke<Tag[]>("all_tags");
+
+export const beginDrag =(view: View, path: string[], names: string[]) => invoke<DragInfo>("begin_drag", { view, path, names });
 export const extractTo = (view: View, path: string[], names: string[], dest: string) =>
   invoke<void>("extract_to", { view, path, names, dest });
 

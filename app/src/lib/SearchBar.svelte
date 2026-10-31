@@ -45,7 +45,7 @@
 </script>
 
 <div class="bar">
-  <input bind:this={input} bind:value={query} type="search" placeholder="Search names" aria-label="Search names" spellcheck="false" onkeydown={key} />
+  <input bind:this={input} bind:value={query} type="search" placeholder="Search names, tag:name" aria-label="Search names" spellcheck="false" onkeydown={key} />
   <div class="seg-group" role="group" aria-label="Match">
     {#each modes as m (m.id)}
       <button type="button" class="seg" class:on={mode === m.id} aria-pressed={mode === m.id} title={m.title} onclick={() => (mode = m.id)}>{m.label}</button>

@@ -27,6 +27,11 @@ export function groupByKind(tags: Tag[]): [TagKind, Tag[]][] {
   return out;
 }
 
+/** What × does on a pill: a user-set tag is removed, a generated one is hidden. */
+export function removalAction(tag: Tag): "remove" | "hide" {
+  return tag.byUser ? "remove" : "hide";
+}
+
 function normalize(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
