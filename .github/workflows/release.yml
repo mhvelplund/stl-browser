@@ -1,0 +1,97 @@
+# On every push to main, commitizen picks the next version from the conventional commits since the last tag,
+# commits the bump and CHANGELOG.md as the commitizen-ci GitHub App, and tags it. Windows then builds the exe and
+# the NSIS installer and attaches them to a new GitHub release.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    # the app's own bump commit lands on main too
+    if: ${{ !startsWith(github.event.head_commit.message, 'bump:') }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.cz.outputs.version }}
+      released: ${{ steps.cz.outputs.released }}
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.CZ_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CZ_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app.outputs.token }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      # node and rust for the pre-bump hooks that rewrite the lockfiles
+      - uses: jdx/mise-action@v5
+
+      - run: pipx install commitizen==4.19.3
+
+      - name: Commit as the app
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          id=$(gh api "/users/${SLUG}[bot]" --jq .id)
+          git config user.name "${SLUG}[bot]"
+          git config user.email "${id}+${SLUG}[bot]@users.noreply.github.com"
+
+      - id: cz
+        env:
+          NOTES: ${{ runner.temp }}/notes.md
+        run: bash .github/scripts/cz-release.sh
+
+      - if: steps.cz.outputs.released == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: notes
+          path: ${{ runner.temp }}/notes.md
+
+  build:
+    needs: bump
+    if: needs.bump.outputs.released == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.bump.outputs.version }}
+
+      - uses: jdx/mise-action@v5
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm --prefix app ci
+
+      - run: npm --prefix app run build:installer
+
+      - run: npm --prefix app run build:exe
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: notes
+
+      - name: Create the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp "target/release/bundle/nsis/STL Browser_${VERSION}_x64-setup.exe" "stl-browser_${VERSION}_x64-setup.exe"
+          gh release create "v$VERSION" --title "v$VERSION" --notes-file notes.md \
+            "target/release/stl-browser-${VERSION}.exe" "stl-browser_${VERSION}_x64-setup.exe"

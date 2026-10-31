@@ -1,0 +1,20 @@
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+# reads and writes [workspace.package] version in Cargo.toml (and the members in Cargo.lock)
+version_provider = "cargo"
+version_scheme = "semver2"
+# while 0.x, breaking changes bump the minor version
+major_version_zero = true
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
+version_files = [
+  "app/src-tauri/tauri.conf.json:\"version\"",
+  "app/package.json:\"version\"",
+]
+# run after the version files change and before the bump commit, which takes all tracked changes;
+# npm rewrites package-lock.json itself (a regex would also hit dependencies on the same version)
+pre_bump_hooks = [
+  "npm --prefix app install --package-lock-only --ignore-scripts --no-audit --no-fund",
+  "cargo update --workspace",
+]
