@@ -125,3 +125,35 @@ fn open_sets_busy_timeout() {
     let ms: i64 = conn.query_row("PRAGMA busy_timeout", [], |r| r.get(0)).unwrap();
     assert_eq!(ms, 5000);
 }
+
+#[test]
+fn upgrade_from_v5_keeps_user_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("index.db");
+    {
+        let conn = rusqlite::Connection::open(&p).unwrap();
+        for step in &db::MIGRATIONS[..5] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 5).unwrap();
+        conn.execute_batch(
+            "INSERT INTO selected_thumb(node_key, image_key) VALUES ('m:coll/orc', 'f:k|orc.jpg');
+             INSERT INTO settings(key, value) VALUES ('k', 'v');",
+        )
+        .unwrap();
+    }
+    let conn = db::open(&p).unwrap();
+    let v: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    assert_eq!(v, 6);
+    let thumb: String = conn
+        .query_row("SELECT image_key FROM selected_thumb WHERE node_key = 'm:coll/orc'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(thumb, "f:k|orc.jpg");
+    assert_eq!(db::get_setting(&conn, "k").unwrap().as_deref(), Some("v"));
+    assert!(tables(&conn).iter().any(|t| t == "hidden_tags"));
+    // v6 replaced the v1 `node_tags` with one keyed by tag key
+    let cols: i64 = conn
+        .query_row("SELECT count(*) FROM pragma_table_info('node_tags') WHERE name = 'tag_key'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(cols, 1);
+}

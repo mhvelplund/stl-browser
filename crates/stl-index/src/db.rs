@@ -76,8 +76,9 @@ CREATE TABLE hidden_tags(tag_key TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NO
                          PRIMARY KEY(tag_key, kind, name));
 ";
 
-/// Migration steps; `MIGRATIONS[i]` takes the schema from version `i` to `i + 1`.
-const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5, V6];
+/// Migration steps; `MIGRATIONS[i]` takes the schema from version `i` to `i + 1`. Public so the
+/// upgrade tests can build an older schema.
+pub const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5, V6];
 
 /// Open (creating if needed) the index DB and bring its schema up to date.
 pub fn open(path: &Path) -> Result<Connection> {
