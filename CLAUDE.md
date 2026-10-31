@@ -44,7 +44,8 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
 - `crates/stl-core`: pure logic, no I/O. `names.rs` (file kinds, name heuristics); `resolve/` (the model resolver, a
   faithful port of the prototype: physical/logical trees, model detection, asset attachment, unit collapse);
   `vtree/` (the tree type, naming rules and hover paths, `models.rs` and `files.rs` view builders fed by row structs,
-  `search.rs`, and `filter.rs` with the shown file endings).
+  `search.rs`, `filter.rs` with the shown file endings, and `tags.rs` with tag kinds, query parsing, effective tags and
+  tag matching).
 - `crates/stl-scan`: archive access. `archive.rs` puts ZIP/7Z/RAR behind one `Archive` trait (`open`); `nested.rs` lists
   archives recursively (max 3 deep, >256 MiB or anything nested in a RAR spills to a temp file); `extract.rs` re-opens a
   file by its `chain` of archive members; `discover.rs` walks a root and emits one source per archive plus one per
@@ -64,7 +65,7 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
   vanished sources deleted; a root inside another root is skipped); `resolvestore.rs` holds `index_all` (scan, then
   re-resolve changed collections per (root, collection)); `views.rs` loads rows and builds both views (inner roots
   become alias volumes; heroes and posters get their entry); `thumbstore.rs` sorts thumbnail requests into ready,
-  failed and jobs; `export.rs` locates an export plan's files and writes them to a folder (Extract to…); `parity.rs` backs `stlx parity`. `bin/stlx.rs` is the dev CLI.
+  failed and jobs; `tagstore.rs` reads and writes user tags and hides (keyed by real path); `export.rs` locates an export plan's files and writes them to a folder (Extract to…); `parity.rs` backs `stlx parity`. `bin/stlx.rs` is the dev CLI.
 - `app/src-tauri`: Tauri shell (`lib.rs` setup and the `thumb` protocol, `state.rs` with the cached view trees, the
   index busy flag and the thumbnail service, `commands.rs`, `browse.rs` for `list_folder` and carousel slots,
   `indexer.rs` for background index runs, `thumbs.rs` for thumbnail requests, workers and `thumb-ready`, `export.rs` for `begin_drag` and `extract_to`).

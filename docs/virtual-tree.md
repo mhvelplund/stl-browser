@@ -106,6 +106,20 @@ These are written by the resolver and rebuilt on every index, so user data never
     folder of what it holds. For a model, that is the common folder of its files: pictures attached from elsewhere don't
     widen it.
 
+## Tag keys (milestone 8)
+
+- **User tags and hides are keyed by real path**, not by the `m:`/`f:` node keys: `r:` + the node's real path,
+  lowercased, e.g. `r:d:\models\vol.1\robots.zip!legion/`. The same thing therefore has the same key in both views, and
+  the key survives adding an outer root.
+- **A merged folder** is tagged under every one of its real paths, and reading takes the union.
+- **Shared real paths share user tags.** Two models resolved from loose files in one folder, a model and the variant
+  folder that holds all its files, or a variant whose parts sit in several figure folders (so its common folder is the
+  model's folder) all have one real path, so they show the same user tags and hides. Generated tags don't have this
+  problem, because they are given per node.
+- **Generated tags** (support, scale, creator, edition) are derived from the resolved tables when the views are built
+  and are not stored. A user tag on a folder counts for everything below it in search, but only the tagged item shows
+  dots and pills.
+
 ## Oddities that will show up as strange folders
 
 - **`stl BM019` is a model inside group `BM019`** (`Blue Makers/BM019/stl_BM019`). The wrapper folder wasn't collapsed
