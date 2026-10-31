@@ -13,6 +13,8 @@ stl-thumb = { path = "../stl-thumb" }
 indexmap = "2"
 thiserror = "2.0.21"
 tempfile = "3"
+serde_norway = "0.9.42"
+serde = { version = "1.0.229", features = ["derive"] }
 
 [dev-dependencies]
 sevenz-rust2 = "0.24.1"

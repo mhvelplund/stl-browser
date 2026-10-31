@@ -44,7 +44,7 @@ pub fn build_export(state: &AppState, view: View, path: &[String], names: &[Stri
     }
     let views = state.views()?;
     let ids = nodes_for(&views, view, path, names)?;
-    let plan = export_plan(&views.get(view).tree, &ids, &|n| visible(view, n));
+    let plan = export_plan(&views.get(view).tree, &ids, &|n| visible(&state.shown, n));
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let files = resolve_plan(&conn, &plan).map_err(|e| e.to_string())?;
     Ok((files, plan.skipped))
@@ -298,6 +298,7 @@ fn start_drag(_: &AppHandle, _: Vec<ExportFile>, _: u32) -> Result<DragInfo, Str
 mod tests {
     use super::*;
     use crate::testutil::library;
+    use stl_core::vtree::filter::Shown;
 
     fn segs(p: &[&str]) -> Vec<String> {
         p.iter().map(|s| s.to_string()).collect()
@@ -371,13 +372,19 @@ mod tests {
     }
 
     #[test]
-    fn build_export_files_view_hides_other_files() {
+    fn build_export_takes_the_shown_files() {
         let dir = tempfile::tempdir().unwrap();
-        let state = library(dir.path());
+        let mut state = library(dir.path());
+        let (files, _) = build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap();
+        assert_eq!(rels(&files), ["orc", "orc/notes.txt", "orc/orc.jpg", "orc/orc.stl"]);
+        state.shown = Shown::new(["stl", "jpg"]);
         let (files, skipped) = build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap();
         assert_eq!(rels(&files), ["orc", "orc/orc.jpg", "orc/orc.stl"]);
         assert_eq!(skipped, 0);
         assert!(files[2].loc.is_some());
+        let (files, _) = build_export(&state, View::Models, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap();
+        assert!(!rels(&files).contains(&"orc/docs/notes.txt"), "{:?}", rels(&files));
+        state.shown = Shown::defaults();
         let (files, _) = build_export(&state, View::Models, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap();
         assert!(rels(&files).contains(&"orc/docs/notes.txt"), "{:?}", rels(&files));
     }
@@ -385,7 +392,8 @@ mod tests {
     #[test]
     fn extract_to_writes_tree_and_renames() {
         let dir = tempfile::tempdir().unwrap();
-        let state = library(dir.path());
+        let mut state = library(dir.path());
+        state.shown = Shown::new(["stl", "jpg"]);
         let out = dir.path().join("out");
         std::fs::create_dir(&out).unwrap();
         let run = || {
@@ -437,7 +445,8 @@ mod tests {
     fn drag_contents_extract_by_index() {
         use stl_drag::Contents;
         let dir = tempfile::tempdir().unwrap();
-        let state = library(dir.path());
+        let mut state = library(dir.path());
+        state.shown = Shown::new(["stl", "jpg"]);
         let (files, _) = build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap();
         let d = drag::descriptors(&files);
         assert_eq!(d[2].rel, "orc\\orc.stl");
