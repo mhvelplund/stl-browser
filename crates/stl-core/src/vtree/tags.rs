@@ -1,7 +1,7 @@
 //! Tags: the model, generated variant tags, user overrides and the `tag:` search syntax.
 use std::collections::HashMap;
 
-use super::{Node, NodeKind, Tree};
+use super::{Node, NodeId, NodeKind, Tree};
 
 /// The tag kinds; the derived order is the dot order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -69,6 +69,43 @@ pub fn tag_keys(n: &Node) -> Vec<String> {
         }
     }
     keys
+}
+
+/// Store each node's tag keys, and the owner of each shadowed node: one whose keys are all
+/// among its parent's (an `images` folder, a logical variant, a part folder). Its owner is the
+/// parent's owner when the parent is shadowed too, else the parent. Top-down, so in the DAG an
+/// inner-root volume makes, the first parent reached wins.
+pub fn link_tags(t: &mut Tree) {
+    for n in &mut t.nodes {
+        n.info.tag_keys = tag_keys(n);
+        n.info.tag_owner = None;
+    }
+    let mut seen = vec![false; t.nodes.len()];
+    seen[0] = true;
+    let mut queue = std::collections::VecDeque::from([0]);
+    while let Some(id) = queue.pop_front() {
+        for c in t.nodes[id].children.clone() {
+            if std::mem::replace(&mut seen[c], true) {
+                continue;
+            }
+            let (parent, child) = (&t.nodes[id].info, &t.nodes[c].info);
+            if !child.tag_keys.is_empty() && child.tag_keys.iter().all(|k| parent.tag_keys.contains(k)) {
+                t.nodes[c].info.tag_owner = Some(t.nodes[id].info.tag_owner.unwrap_or(id));
+            }
+            queue.push_back(c);
+        }
+    }
+}
+
+/// Refuse a tag edit on a shadowed node: its folders carry its owner's tags.
+pub fn check_writable(t: &Tree, id: NodeId) -> Result<(), String> {
+    match t.nodes[id].info.tag_owner {
+        Some(o) => {
+            let owner = &t.nodes[o].name;
+            Err(format!("{} shares its folder with {owner}; tag {owner} instead", t.nodes[id].name))
+        }
+        None => Ok(()),
+    }
 }
 
 /// Generated tags of a variant label such as `supported+25mm`.
@@ -198,28 +235,37 @@ pub struct UserTags {
 
 impl UserTags {
     /// The node's own tags: generated ones minus hidden and minus kinds the user overrode,
-    /// plus the user-set ones, sorted by (kind, name).
+    /// plus the user-set ones, sorted by (kind, name). A shadowed node has its generated tags
+    /// only: its folders' user tags and hides belong to its owner.
     pub fn effective(&self, n: &Node) -> Vec<Tag> {
-        let keys = tag_keys(n);
-        let user: Vec<&Tag> = keys.iter().filter_map(|k| self.set.get(k)).flatten().collect();
-        let hidden = self.hidden_pairs(&keys);
-        let mut out: Vec<Tag> = n
-            .info
-            .tags
-            .iter()
-            .filter(|t| !hidden.iter().any(|(k, name)| *k == t.kind && *name == t.name))
-            .filter(|t| !user.iter().any(|u| u.kind == t.kind && u.kind != TagKind::User))
-            .cloned()
-            .collect();
-        out.extend(user.into_iter().cloned());
+        let mut out: Vec<Tag> = if n.info.tag_owner.is_some() {
+            n.info.tags.clone()
+        } else {
+            let keys = &n.info.tag_keys;
+            let user: Vec<&Tag> = keys.iter().filter_map(|k| self.set.get(k)).flatten().collect();
+            let hidden = self.hidden_pairs(keys);
+            let mut out: Vec<Tag> = n
+                .info
+                .tags
+                .iter()
+                .filter(|t| !hidden.iter().any(|(k, name)| *k == t.kind && *name == t.name))
+                .filter(|t| !user.iter().any(|u| u.kind == t.kind && u.kind != TagKind::User))
+                .cloned()
+                .collect();
+            out.extend(user.into_iter().cloned());
+            out
+        };
         out.sort();
         out.dedup();
         out
     }
 
-    /// The node's generated tags that the user hid.
+    /// The node's generated tags that the user hid (none for a shadowed node).
     pub fn hidden_of(&self, n: &Node) -> Vec<Tag> {
-        let hidden = self.hidden_pairs(&tag_keys(n));
+        if n.info.tag_owner.is_some() {
+            return Vec::new();
+        }
+        let hidden = self.hidden_pairs(&n.info.tag_keys);
         let mut out: Vec<Tag> = n
             .info
             .tags

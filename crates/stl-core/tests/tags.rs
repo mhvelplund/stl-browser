@@ -12,6 +12,7 @@ fn node_with(real: &[&str], generated: Vec<Tag>) -> stl_core::vtree::Node {
     let id = t.add(0, "Orc", NodeKind::Model);
     t.nodes[id].real = real.iter().map(|s| s.to_string()).collect();
     t.nodes[id].info.tags = generated;
+    link_tags(&mut t);
     t.nodes[id].clone()
 }
 
@@ -165,4 +166,84 @@ fn copy_tags_untagged_sibling_model_empties_it() {
     let mut files = tree_with(r"d:\m\orc", "f:folder", NodeKind::Folder, vec![]);
     copy_tags(&models, &mut files);
     assert!(files.nodes[1].info.tags.is_empty());
+}
+
+struct Shadows {
+    t: Tree,
+    orc: usize,
+    images: usize,
+    variant: usize,
+    arms: usize,
+    legs: usize,
+    merged: usize,
+    sub: usize,
+}
+
+/// `vol/coll/{orc/{images, supported/arms, legs}, merged/sub}`: `images`, the logical variant
+/// `supported` and the part `arms` under it share `orc`'s folder; `legs` has a folder of its own;
+/// `merged` spans two folders and `sub` lives in one of them.
+fn shadows() -> Shadows {
+    let mut t = Tree::new();
+    let add = |t: &mut Tree, parent, name: &str, kind, real: &[&str]| {
+        let id = t.add(parent, name, kind);
+        t.nodes[id].real = real.iter().map(|r| r.to_string()).collect();
+        id
+    };
+    let vol = add(&mut t, 0, "vol", NodeKind::Volume, &[r"D:\M"]);
+    let coll = add(&mut t, vol, "coll", NodeKind::Collection, &[r"D:\M\Coll"]);
+    let orc = add(&mut t, coll, "orc", NodeKind::Model, &[r"D:\M\Coll\Orc"]);
+    let images = add(&mut t, orc, "images", NodeKind::Images, &[r"D:\M\Coll\Orc"]);
+    let variant = add(&mut t, orc, "supported", NodeKind::Variant, &[r"D:\M\Coll\Orc"]);
+    t.nodes[variant].info.tags = vec![tag(TagKind::Support, "supported", false)];
+    let arms = add(&mut t, variant, "arms", NodeKind::Part, &[r"D:\M\Coll\Orc"]);
+    let legs = add(&mut t, orc, "legs", NodeKind::Part, &[r"D:\M\Coll\Orc\Legs"]);
+    let merged = add(&mut t, coll, "merged", NodeKind::Model, &[r"D:\M\Coll\A", r"D:\M\Coll\B"]);
+    let sub = add(&mut t, merged, "sub", NodeKind::Variant, &[r"D:\M\Coll\A"]);
+    link_tags(&mut t);
+    Shadows { t, orc, images, variant, arms, legs, merged, sub }
+}
+
+#[test]
+fn shadowed_subfolders_follow_their_owner() {
+    let s = shadows();
+    let owner = |id: usize| s.t.nodes[id].info.tag_owner;
+    assert_eq!(owner(s.orc), None);
+    assert_eq!(owner(s.images), Some(s.orc));
+    assert_eq!(owner(s.variant), Some(s.orc));
+    assert_eq!(owner(s.arms), Some(s.orc)); // through the shadowed variant
+    assert_eq!(owner(s.legs), None);
+    assert_eq!(owner(s.sub), Some(s.merged)); // a subset of the merged parent's folders
+    assert_eq!(s.t.nodes[s.merged].info.tag_keys, [tag_key(r"D:\M\Coll\A"), tag_key(r"D:\M\Coll\B")]);
+}
+
+#[test]
+fn only_the_owner_shows_user_tags_and_hides() {
+    let s = shadows();
+    let mut u = UserTags::default();
+    let tinmen = tag(TagKind::User, "tinmen", true);
+    u.set.insert(tag_key(r"D:\M\Coll\Orc"), vec![tinmen.clone(), tag(TagKind::Support, "unsupported", true)]);
+    u.hidden.insert(tag_key(r"D:\M\Coll\Orc"), vec![(TagKind::Support, "supported".into())]);
+    u.set.insert(tag_key(r"D:\M\Coll\A"), vec![tinmen.clone()]);
+    let eff = |id: usize| u.effective(&s.t.nodes[id]);
+    assert_eq!(eff(s.orc), [tinmen.clone(), tag(TagKind::Support, "unsupported", true)]);
+    assert!(eff(s.images).is_empty());
+    assert!(eff(s.arms).is_empty());
+    assert!(eff(s.legs).is_empty());
+    // the variant keeps its generated tag: no user value or hide of the owner applies to it
+    assert_eq!(eff(s.variant), [tag(TagKind::Support, "supported", false)]);
+    assert!(u.hidden_of(&s.t.nodes[s.variant]).is_empty());
+    assert_eq!(eff(s.merged), [tinmen]);
+    assert!(eff(s.sub).is_empty());
+}
+
+#[test]
+fn writes_on_a_shadowed_node_name_the_owner() {
+    let s = shadows();
+    let refused = "shares its folder with orc; tag orc instead";
+    assert_eq!(check_writable(&s.t, s.variant), Err(format!("supported {refused}")));
+    assert_eq!(check_writable(&s.t, s.images), Err(format!("images {refused}")));
+    assert_eq!(check_writable(&s.t, s.arms), Err(format!("arms {refused}")));
+    assert_eq!(check_writable(&s.t, s.sub), Err("sub shares its folder with merged; tag merged instead".to_string()));
+    assert_eq!(check_writable(&s.t, s.orc), Ok(()));
+    assert_eq!(check_writable(&s.t, s.legs), Ok(()));
 }

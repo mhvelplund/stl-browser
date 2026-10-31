@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
-use stl_core::vtree::tags::{TagKind, UserTags, tag_keys};
+use stl_core::vtree::tags::{TagKind, UserTags, check_writable};
 use stl_index::{scanstore, tagstore};
 
 use crate::browse::{self, Found, Listing, NodeTags, SearchMode, TagView, View};
@@ -153,15 +153,18 @@ pub fn node_tags(state: tauri::State<'_, AppState>, view: View, path: Vec<String
     node_tags_impl(&state, view, path, name)
 }
 
-/// The tag keys of the node at `(path, name)` (one per real path), and the parsed kind.
+/// The tag keys of the node at `(path, name)` (one per real path), and the parsed kind. A node
+/// that shares its folder with its owner is refused.
 fn tag_target(state: &AppState, view: View, path: &[String], name: &str, kind: &str) -> Result<(Vec<String>, TagKind), String> {
     let views = state.views()?;
     let at = browse::locate_node(&views, view, path, name)?;
-    let keys = tag_keys(&views.get(view).tree.nodes[at.id]);
+    let t = &views.get(view).tree;
+    let keys = t.nodes[at.id].info.tag_keys.clone();
     if keys.is_empty() {
         let shown = if name.is_empty() { path.last().map_or("the library", String::as_str) } else { name };
         return Err(format!("{shown} can't be tagged"));
     }
+    check_writable(t, at.id)?;
     let kind = TagKind::parse(kind).ok_or_else(|| format!("unknown tag kind {kind}"))?;
     Ok((keys, kind))
 }
@@ -222,7 +225,7 @@ pub fn all_tags_impl(state: &AppState) -> Result<Vec<TagView>, String> {
     .into_iter()
     .map(|(kind, name)| stl_core::vtree::tags::Tag { kind, name, by_user: true })
     .collect();
-    all.extend(browse::generated_tags(&views));
+    all.extend(views.generated.iter().cloned());
     all.sort();
     all.dedup();
     Ok(all.iter().map(TagView::from).collect())

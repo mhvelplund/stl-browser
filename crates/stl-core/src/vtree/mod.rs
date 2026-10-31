@@ -64,6 +64,11 @@ pub struct Info {
     pub hero_key: Option<String>,
     /// Generated tags (variant atoms, edition); user edits are applied by `tags::UserTags`.
     pub tags: Vec<tags::Tag>,
+    /// The user-data keys of the node's real paths; set by `tags::link_tags`.
+    pub tag_keys: Vec<String>,
+    /// For a node that shares its parent's folders, the node whose user tags those folders
+    /// carry; set by `tags::link_tags`.
+    pub tag_owner: Option<NodeId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
