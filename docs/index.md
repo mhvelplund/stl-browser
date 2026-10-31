@@ -339,16 +339,25 @@ Design: [`superpowers/specs/2026-10-31-tags-design.md`](superpowers/specs/2026-1
   - **Supported and unsupported exclude each other.** An item that would get both gets neither, so a model with both
     kinds of variant has no support tag; its variant folders and files carry their own.
   - **A value the user sets overrides everything below it** in search. A model set to `32mm` means `tag:25mm` no longer
-    finds its variants or files.
+    finds its variants or files. It also overrides the generated value of its kind from above: a variant set to `32mm`
+    in a `25mm` model drops out of `tag:25mm`, with everything below it.
   - **Editing is in a side panel** for the selected tile, one at a time.
 
 ### Made by me (correct any that are wrong)
 
 - **Milestone 8 details:**
-  - **Shared real paths share user tags and hides.** Two models resolved from loose files in one folder, a model and
-    the variant folder that holds all its files, and a variant whose parts sit in several figure folders all have the
-    same real path. Not worked around. In the Vol.1 check, tagging a model also showed the tag on its `images` and
-    variant folders, and a user-set scale showed on them too. Generated tags are per node and don't have this problem.
+  - **Shadowed subfolders follow their owner.** A Models node whose real paths are all among its parent's (`images`,
+    `docs`, a logical variant, a part folder, a single-model group) is *shadowed*: its owner is the parent, or the
+    parent's owner when the parent is shadowed too (`link_tags`, once per tree in `build_views`). A shadowed node shows
+    only its generated tags; the user tags and hides of the shared folder belong to the owner, so only the owner shows
+    them as dots and pills, and search and "From folders above" count them once, at the owner. Tag edits on a shadowed
+    node are refused ("`<name>` shares its folder with `<owner>`; tag `<owner>` instead"), and the panel says so, with
+    the owner's name as a button that selects it.
+    - A model of loose files directly in a group or collection folder is shadowed by that group: the group carries its
+      user tags.
+    - A wrong generated tag on a shadowed node can't be hidden (a hide would land on the owner's folder).
+    - **The remaining known limit:** siblings whose shared folder isn't their parent's path (two models resolved from
+      loose files in one folder below a group with a folder of its own, say) still share user tags and hides.
   - **Scale follows the same exclusion rule** as support: variants with different scales give no scale tag.
   - **A model's support and scale tags** are what all its variants have in common (the intersection over its variants);
     a model with no variants gets none.
@@ -625,14 +634,11 @@ From milestone 8:
   - Filters other than `tag:` terms (such as "has no picture"), and negation (`-tag:x`).
   - Catalog id as a tag.
   - Showing inherited tags as dots.
-- **Shared real paths share user tags and hides** (see "Made by me"). Fixing it would need node-level keys that survive
-  adding an outer root.
-- **Tag popover:** it can stay open if `pointerleave` never fires (it doesn't close on pointerdown or cancel), it may
-  flash for a frame at the top-left, and it is mouse-only (the dots have an `aria-label` only).
-- **Tag panel:**
-  - The add field is cleared before the add succeeds.
-  - Backspace in the kind select navigates up.
-  - Suggestion de-duplication has no test.
+- **Siblings that share a folder share user tags and hides** when that folder isn't their parent's path (see
+  "Made by me"; subfolders sharing their parent's path follow their owner). Fixing it would need node-level keys that
+  survive adding an outer root.
+- **Tag popover:** it may flash for a frame at the top-left, and it is mouse-only (the dots have an `aria-label` only).
+- **Tag panel:** suggestion de-duplication has no test.
 - **Tag search:**
   - `tag:"a"b` becomes the tag `a` plus the term `b`; this is unspecified.
   - The ancestor walk computes effective tags even when the query has no tag terms.

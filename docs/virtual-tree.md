@@ -112,10 +112,13 @@ These are written by the resolver and rebuilt on every index, so user data never
   lowercased, e.g. `r:d:\models\vol.1\robots.zip!legion/`. The same thing therefore has the same key in both views, and
   the key survives adding an outer root.
 - **A merged folder** is tagged under every one of its real paths, and reading takes the union.
-- **Shared real paths share user tags.** Two models resolved from loose files in one folder, a model and the variant
-  folder that holds all its files, or a variant whose parts sit in several figure folders (so its common folder is the
-  model's folder) all have one real path, so they show the same user tags and hides. Generated tags don't have this
-  problem, because they are given per node.
+- **Shadowed subfolders follow their owner.** A node whose real paths are all among its parent's (`images`, `docs`, a
+  logical variant, a part folder, a model of loose files directly in its group's folder) is shadowed: the owner is the
+  parent, or the parent's owner when the parent is shadowed too. The user tags and hides of the shared folder belong to
+  the owner: the shadowed node shows only its generated tags, and tag edits on it are refused with a pointer to the
+  owner. A wrong generated tag on a shadowed node therefore can't be hidden. Siblings whose shared folder isn't their
+  parent's path (two models from loose files in one folder below a group with its own folder) still share user tags and
+  hides. Generated tags are given per node and are never shared.
 - **Generated tags** (support, scale, creator, edition) are derived from the resolved tables when the views are built
   and are not stored. A user tag on a folder counts for everything below it in search, but only the tagged item shows
   dots and pills.
