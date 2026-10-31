@@ -143,9 +143,11 @@ export const unhideTag = (view: View, path: string[], name: string, kind: TagKin
   invoke<void>("unhide_tag", { view, path, name, kind, tag });
 export const allTags = () => invoke<Tag[]>("all_tags");
 
-export const beginDrag = (view: View, path: string[], names: string[]) => invoke<DragInfo>("begin_drag", { view, path, names });
-export const extractTo = (view: View, path: string[], names: string[], dest: string) =>
-  invoke<void>("extract_to", { view, path, names, dest });
+/** An item: `name` in the folder at `path` (`name === ""` is that folder). */
+export type Target = { path: string[]; name: string };
+
+export const beginDrag = (view: View, targets: Target[]) => invoke<DragInfo>("begin_drag", { view, targets });
+export const extractTo = (view: View, targets: Target[], dest: string) => invoke<void>("extract_to", { view, targets, dest });
 
 export const onIndexProgress = (cb: (p: IndexProgress) => void): Promise<UnlistenFn> =>
   listen<IndexProgress>("index-progress", (e) => cb(e.payload));

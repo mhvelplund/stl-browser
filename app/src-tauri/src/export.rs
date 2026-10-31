@@ -13,37 +13,47 @@ use stl_scan::extract::SourceKind;
 use stl_scan::session::ExtractSession;
 use tauri::{AppHandle, Emitter};
 
-use crate::browse::{View, Views, visible};
+use crate::browse::{Target, View, Views, visible};
 use crate::state::AppState;
 
 pub const EXTRACT_BUSY: &str = "an extraction is already running";
 pub const INDEX_BUSY: &str = "the index is being updated; try again when it is done";
 
-/// The children named `names` of the folder at exactly `path`; an error when the UI is stale.
-pub fn nodes_for(views: &Views, view: View, path: &[String], names: &[String]) -> Result<Vec<NodeId>, String> {
+/// The nodes of `targets` (each a child of the folder at exactly its `path`), in order and
+/// without repeats; a target inside another target is dropped, so nothing is written twice.
+/// An error when the UI is stale.
+pub fn nodes_for(views: &Views, view: View, targets: &[Target]) -> Result<Vec<NodeId>, String> {
     let t = &views.get(view).tree;
-    let (folder, used) = t.walk(path);
-    if used != path.len() {
-        return Err(format!("the folder {} no longer exists", path.join("/")));
+    let lower = |v: &[String]| v.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>();
+    let full: Vec<Vec<String>> = targets.iter().map(|g| [lower(&g.path), vec![g.name.to_lowercase()]].concat()).collect();
+    let mut ids = Vec::new();
+    for (i, g) in targets.iter().enumerate() {
+        // below another target (whose full path is a proper prefix of this one's)
+        if full.iter().any(|o| o.len() < full[i].len() && full[i].starts_with(o)) {
+            continue;
+        }
+        let (folder, used) = t.walk(&g.path);
+        if used != g.path.len() {
+            return Err(format!("the folder {} no longer exists", g.path.join("/")));
+        }
+        let name = g.name.to_lowercase();
+        let id = t.nodes[folder].children.iter().copied().find(|&c| t.nodes[c].name == name).ok_or(format!("{name} no longer exists"))?;
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
     }
-    names
-        .iter()
-        .map(|name| {
-            let name = name.to_lowercase();
-            t.nodes[folder].children.iter().copied().find(|&c| t.nodes[c].name == name).ok_or(format!("{name} no longer exists"))
-        })
-        .collect()
+    Ok(ids)
 }
 
-/// The files and folders to write for `names` in the folder at `path`, and how many items
-/// were skipped (locked archives).
-pub fn build_export(state: &AppState, view: View, path: &[String], names: &[String]) -> Result<(Vec<ExportFile>, u32), String> {
+/// The files and folders to write for `targets`, and how many items were skipped (locked
+/// archives).
+pub fn build_export(state: &AppState, view: View, targets: &[Target]) -> Result<(Vec<ExportFile>, u32), String> {
     // during a run, re-listed sources reuse entry ids while the views still hold the old ones
     if state.is_indexing() {
         return Err(INDEX_BUSY.into());
     }
     let views = state.views()?;
-    let ids = nodes_for(&views, view, path, names)?;
+    let ids = nodes_for(&views, view, targets)?;
     let plan = export_plan(&views.get(view).tree, &ids, &|n| visible(&state.shown, n));
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let files = resolve_plan(&conn, &plan).map_err(|e| e.to_string())?;
@@ -127,12 +137,12 @@ pub fn extract_worker(
     }
 }
 
-/// Write `names` (in the folder at `path` of `view`) into `dest` in the background. Returns
+/// Write `targets` (items of `view`) into `dest` in the background. Returns
 /// once the work is queued; one extraction runs at a time.
 #[tauri::command(async)]
-pub fn extract_to(app: AppHandle, state: tauri::State<'_, AppState>, view: View, path: Vec<String>, names: Vec<String>, dest: String) -> Result<(), String> {
+pub fn extract_to(app: AppHandle, state: tauri::State<'_, AppState>, view: View, targets: Vec<Target>, dest: String) -> Result<(), String> {
     let guard = state.try_begin_extract().ok_or(EXTRACT_BUSY)?;
-    let (files, skipped) = build_export(&state, view, &path, &names)?;
+    let (files, skipped) = build_export(&state, view, &targets)?;
     let dest = PathBuf::from(dest);
     if !dest.is_dir() {
         return Err(format!("{} is not a folder", dest.display()));
@@ -187,7 +197,7 @@ pub fn stage_for_open(state: &AppState, view: View, path: &[String], name: &str,
     if !openable(name) {
         return Err(format!("{name} is not a model, picture or document, so it is not opened (use Extract to…)"));
     }
-    let (files, skipped) = build_export(state, view, path, &[name.to_string()])?;
+    let (files, skipped) = build_export(state, view, &[Target { path: path.to_vec(), name: name.to_string() }])?;
     let f = match files.as_slice() {
         [f] if !f.is_dir => f,
         [] if skipped > 0 => return Err(format!("{name} is locked")),
@@ -264,11 +274,11 @@ mod drag {
     }
 }
 
-/// Start dragging `names` (in the folder at `path` of `view`) out of the window. The drag runs
+/// Start dragging `targets` (items of `view`) out of the window. The drag runs
 /// on the main thread; it is skipped if the mouse button was released in the meantime.
 #[tauri::command(async)]
-pub fn begin_drag(app: AppHandle, state: tauri::State<'_, AppState>, view: View, path: Vec<String>, names: Vec<String>) -> Result<DragInfo, String> {
-    let (files, skipped) = build_export(&state, view, &path, &names)?;
+pub fn begin_drag(app: AppHandle, state: tauri::State<'_, AppState>, view: View, targets: Vec<Target>) -> Result<DragInfo, String> {
+    let (files, skipped) = build_export(&state, view, &targets)?;
     if files.is_empty() {
         return Err("nothing to drag: locked archives can't be extracted".into());
     }
@@ -302,6 +312,14 @@ mod tests {
 
     fn segs(p: &[&str]) -> Vec<String> {
         p.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn tg(path: &[&str], name: &str) -> Target {
+        Target { path: segs(path), name: name.into() }
+    }
+
+    fn tgs(path: &[&str], names: &[&str]) -> Vec<Target> {
+        names.iter().map(|n| tg(path, n)).collect()
     }
 
     fn rels(files: &[ExportFile]) -> Vec<&str> {
@@ -353,13 +371,13 @@ mod tests {
     }
 
     #[test]
-    fn nodes_for_finds_named_children() {
+    fn nodes_for_finds_targets_in_different_folders() {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
         let views = state.views().unwrap();
-        let ids = nodes_for(&views, View::Files, &segs(&["vol", "coll"]), &segs(&["Orc", "elf"])).unwrap();
+        let ids = nodes_for(&views, View::Files, &[tg(&["vol", "coll"], "Orc"), tg(&["vol", "coll", "elf"], "elf.stl")]).unwrap();
         let names: Vec<_> = ids.iter().map(|&i| views.files.tree.nodes[i].name.as_str()).collect();
-        assert_eq!(names, ["orc", "elf"]);
+        assert_eq!(names, ["orc", "elf.stl"]);
     }
 
     #[test]
@@ -367,25 +385,54 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
         let views = state.views().unwrap();
-        assert!(nodes_for(&views, View::Files, &segs(&["vol", "coll"]), &segs(&["gone"])).is_err());
-        assert!(nodes_for(&views, View::Files, &segs(&["vol", "nope"]), &segs(&["orc"])).is_err());
+        assert!(nodes_for(&views, View::Files, &[tg(&["vol", "coll"], "gone")]).is_err());
+        assert!(nodes_for(&views, View::Files, &[tg(&["vol", "nope"], "orc")]).is_err());
+    }
+
+    #[test]
+    fn targets_drop_nested() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let both = [tg(&["vol", "coll", "orc"], "orc.stl"), tg(&["Vol", "coll"], "Orc")];
+        let views = state.views().unwrap();
+        let ids = nodes_for(&views, View::Files, &both).unwrap();
+        let names: Vec<_> = ids.iter().map(|&i| views.files.tree.nodes[i].name.as_str()).collect();
+        assert_eq!(names, ["orc"]);
+        drop(views);
+        let (files, _) = build_export(&state, View::Files, &both).unwrap();
+        assert_eq!(rels(&files), ["orc", "orc/notes.txt", "orc/orc.jpg", "orc/orc.stl"]);
+    }
+
+    #[test]
+    fn build_export_mixed_folders_renames_clashes() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        std::fs::write(dir.path().join("lib/Vol/Coll/Elf/orc.stl"), b"x").unwrap();
+        let (done, views) = crate::indexer::run_index(&state.db_path(), None, &AtomicBool::new(false), &mut |_| {});
+        assert!(done.ok, "{:?}", done.error);
+        state.set_views(views.unwrap());
+        let (files, _) = build_export(&state, View::Files, &[tg(&["vol", "coll", "orc"], "orc.stl"), tg(&["vol", "coll", "elf"], "orc.stl")]).unwrap();
+        let r = rels(&files);
+        assert_eq!(r.len(), 2, "{r:?}");
+        assert_eq!(r[0], "orc.stl");
+        assert!(r[1] != "orc.stl" && r[1].ends_with(".stl"), "{r:?}");
     }
 
     #[test]
     fn build_export_takes_the_shown_files() {
         let dir = tempfile::tempdir().unwrap();
         let mut state = library(dir.path());
-        let (files, _) = build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap();
+        let (files, _) = build_export(&state, View::Files, &tgs(&["vol", "coll"], &["orc"])).unwrap();
         assert_eq!(rels(&files), ["orc", "orc/notes.txt", "orc/orc.jpg", "orc/orc.stl"]);
         state.shown = Shown::new(["stl", "jpg"]);
-        let (files, skipped) = build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap();
+        let (files, skipped) = build_export(&state, View::Files, &tgs(&["vol", "coll"], &["orc"])).unwrap();
         assert_eq!(rels(&files), ["orc", "orc/orc.jpg", "orc/orc.stl"]);
         assert_eq!(skipped, 0);
         assert!(files[2].loc.is_some());
-        let (files, _) = build_export(&state, View::Models, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap();
+        let (files, _) = build_export(&state, View::Models, &tgs(&["vol", "coll"], &["orc"])).unwrap();
         assert!(!rels(&files).contains(&"orc/docs/notes.txt"), "{:?}", rels(&files));
         state.shown = Shown::defaults();
-        let (files, _) = build_export(&state, View::Models, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap();
+        let (files, _) = build_export(&state, View::Models, &tgs(&["vol", "coll"], &["orc"])).unwrap();
         assert!(rels(&files).contains(&"orc/docs/notes.txt"), "{:?}", rels(&files));
     }
 
@@ -397,7 +444,7 @@ mod tests {
         let out = dir.path().join("out");
         std::fs::create_dir(&out).unwrap();
         let run = || {
-            let (files, skipped) = build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc", "elf"])).unwrap();
+            let (files, skipped) = build_export(&state, View::Files, &tgs(&["vol", "coll"], &["orc", "elf"])).unwrap();
             let mut seen = 0;
             let done = extract_worker(files, skipped, &out, &AtomicBool::new(false), &mut |p| {
                 seen += 1;
@@ -424,10 +471,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = library(dir.path());
         let g = state.try_begin_index().unwrap();
-        let err = build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap_err();
+        let err = build_export(&state, View::Files, &tgs(&["vol", "coll"], &["orc"])).unwrap_err();
         assert_eq!(err, INDEX_BUSY);
         drop(g);
-        assert!(build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc"])).is_ok());
+        assert!(build_export(&state, View::Files, &tgs(&["vol", "coll"], &["orc"])).is_ok());
     }
 
     #[test]
@@ -447,7 +494,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut state = library(dir.path());
         state.shown = Shown::new(["stl", "jpg"]);
-        let (files, _) = build_export(&state, View::Files, &segs(&["vol", "coll"]), &segs(&["orc"])).unwrap();
+        let (files, _) = build_export(&state, View::Files, &tgs(&["vol", "coll"], &["orc"])).unwrap();
         let d = drag::descriptors(&files);
         assert_eq!(d[2].rel, "orc\\orc.stl");
         assert_eq!(d[2].size, Some(1));
@@ -478,7 +525,7 @@ mod tests {
         let view = if parts[0] == "files" { View::Files } else { View::Models };
         let path: Vec<String> = parts[1].split('/').map(String::from).collect();
         let state = AppState::open(stl_index::paths::app_dir()).unwrap();
-        let (files, _) = build_export(&state, view, &path, &[parts[2].to_string()]).unwrap();
+        let (files, _) = build_export(&state, view, &[Target { path, name: parts[2].to_string() }]).unwrap();
         let want: Vec<(String, u64)> = files.iter().filter(|f| !f.is_dir).map(|f| (f.rel.clone(), f.loc.as_ref().unwrap().size.unwrap())).collect();
         let prepared = drag::prepare(files).unwrap();
         let dest = tempfile::tempdir().unwrap().keep();

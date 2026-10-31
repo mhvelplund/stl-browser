@@ -118,6 +118,14 @@ pub struct NodeTags {
     pub owner: Option<Owner>,
 }
 
+/// An item the UI points at: `name` in the folder at `path` (`name == ""` is that folder).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Target {
+    pub path: Vec<String>,
+    pub name: String,
+}
+
 /// A node by its name and the path of the folder that lists it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]

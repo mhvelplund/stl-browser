@@ -353,7 +353,7 @@
 
   async function dragFrom(path: string[], name: string) {
     try {
-      const info = await api.beginDrag(view, path, [name]);
+      const info = await api.beginDrag(view, [{ path, name }]);
       if (info.skipped) notice = `${info.skipped} item${info.skipped === 1 ? "" : "s"} left out of the drag (locked, or path too long)`;
     } catch (e) {
       notice = `Could not drag: ${e}`;
@@ -371,7 +371,7 @@
     if (typeof dest !== "string") return;
     try {
       extracting = { index: 0, total: 0, name: item.name };
-      await api.extractTo(view, path, [item.name], dest);
+      await api.extractTo(view, [{ path, name: item.name }], dest);
     } catch (e) {
       extracting = null;
       notice = `Could not extract: ${e}`;
