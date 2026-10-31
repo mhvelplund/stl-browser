@@ -5,4 +5,5 @@ build-installer = "npm --prefix {{config_root}}/app run build:installer"
 [tools]
 "aqua:cli/cli" = "latest"
 node = "24.22.1"
+pre-commit = "latest"
 rust = "1.99.1"
