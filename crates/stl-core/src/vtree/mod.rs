@@ -7,6 +7,7 @@ pub mod locate;
 pub mod files;
 pub mod models;
 pub mod search;
+pub mod tags;
 
 use indexmap::IndexMap;
 
@@ -61,6 +62,8 @@ pub struct Info {
     pub hero_entry_id: Option<i64>,
     /// That entry's `f:` key.
     pub hero_key: Option<String>,
+    /// Generated tags (variant atoms, edition); user edits are applied by `tags::UserTags`.
+    pub tags: Vec<tags::Tag>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
