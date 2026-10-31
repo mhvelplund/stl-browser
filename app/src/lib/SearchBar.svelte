@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import type { SearchMode } from "./api";
+  import { onMount, tick } from "svelte";
+  import * as api from "./api";
+  import type { SearchMode, Tag } from "./api";
   import { scopeLabel } from "./search";
+  import { applyCompletion, matchTags, tagTermAt } from "./tagcomplete";
 
   let {
     query = $bindable(),
@@ -34,9 +36,80 @@
   ];
 
   let input: HTMLInputElement | undefined = $state();
-  onMount(() => input?.focus());
+  let list: HTMLUListElement | undefined = $state();
+  let known = $state<Tag[]>([]);
+  let caret = $state(0);
+  let active = $state(0);
+  /** Esc closed the list; it opens again on the next edit or caret move. */
+  let dismissed = $state(false);
+
+  const term = $derived(tagTermAt(query, caret));
+  const matches = $derived(term ? matchTags(known, term.prefix) : []);
+  const open = $derived(!dismissed && matches.length > 0);
+
+  async function loadKnown() {
+    try {
+      known = await api.allTags();
+    } catch {
+      // no suggestions; the search itself still works
+    }
+  }
+
+  onMount(() => {
+    input?.focus();
+    loadKnown();
+  });
+
+  $effect(() => {
+    // the first match is selected whenever the list changes
+    void matches;
+    active = 0;
+  });
+
+  function track() {
+    const c = input?.selectionStart ?? query.length;
+    if (c !== caret) dismissed = false;
+    caret = c;
+  }
+
+  function onInput() {
+    dismissed = false;
+    track();
+  }
+
+  async function choose(name: string) {
+    if (!term) return;
+    const done = applyCompletion(query, term, name);
+    query = done.query;
+    caret = done.caret;
+    await tick();
+    input?.setSelectionRange(done.caret, done.caret);
+  }
+
+  async function move(by: number) {
+    active = (active + by + matches.length) % matches.length;
+    await tick();
+    list?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" });
+  }
 
   function key(e: KeyboardEvent) {
+    if (open) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        move(e.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+      if (e.key === "Tab" && !e.shiftKey) {
+        e.preventDefault();
+        choose(matches[active]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        dismissed = true;
+        return;
+      }
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       onClose();
@@ -45,7 +118,51 @@
 </script>
 
 <div class="bar">
-  <input bind:this={input} bind:value={query} type="search" placeholder="Search names, tag:name" aria-label="Search names" spellcheck="false" onkeydown={key} />
+  <div class="field">
+    <input
+      bind:this={input}
+      bind:value={query}
+      type="search"
+      placeholder="Search names, tag:name"
+      aria-label="Search names"
+      spellcheck="false"
+      role="combobox"
+      aria-autocomplete="list"
+      aria-expanded={open}
+      aria-controls="tag-complete"
+      aria-activedescendant={open ? `tag-complete-${active}` : undefined}
+      onkeydown={key}
+      oninput={onInput}
+      onkeyup={track}
+      onclick={track}
+      onfocus={() => {
+        dismissed = false;
+        loadKnown();
+      }}
+      onblur={() => (dismissed = true)}
+    />
+    {#if open}
+      <ul class="complete" id="tag-complete" role="listbox" aria-label="Tags" bind:this={list}>
+        {#each matches as name, i (name)}
+          {@const cut = term ? Math.min(term.prefix.length, name.length) : 0}
+          <li
+            id="tag-complete-{i}"
+            data-i={i}
+            role="option"
+            aria-selected={i === active}
+            class:on={i === active}
+            onmousedown={(e) => {
+              e.preventDefault();
+              choose(name);
+            }}
+            onmouseenter={() => (active = i)}
+          >
+            <b>{name.slice(0, cut)}</b>{name.slice(cut)}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
   <div class="seg-group" role="group" aria-label="Match">
     {#each modes as m (m.id)}
       <button type="button" class="seg" class:on={mode === m.id} aria-pressed={mode === m.id} title={m.title} onclick={() => (mode = m.id)}>{m.label}</button>
@@ -89,8 +206,14 @@
     background: var(--bar);
     border-bottom: 1px solid var(--line);
   }
-  input {
+  .field {
+    position: relative;
     flex: 1 1 280px;
+    min-width: 0;
+    display: flex;
+  }
+  input {
+    flex: 1 1 auto;
     min-width: 0;
     height: 34px;
     padding: 0 12px;
@@ -103,6 +226,43 @@
   input:focus {
     outline: none;
     border-color: var(--sel-line);
+  }
+  .complete {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 220px;
+    max-width: 100%;
+    max-height: calc(8 * 28px + 8px);
+    overflow-y: auto;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    z-index: 20;
+    border-radius: 8px;
+    border: 1px solid var(--ctl-line);
+    background: var(--ctl);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
+  }
+  .complete li {
+    height: 28px;
+    line-height: 28px;
+    padding: 0 10px;
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  .complete li.on {
+    background: var(--ctl-line);
+    color: var(--text-strong);
+  }
+  .complete b {
+    font-weight: 600;
+    color: var(--text-strong);
   }
   .seg-group {
     display: flex;
