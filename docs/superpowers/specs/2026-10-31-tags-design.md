@@ -177,6 +177,8 @@ user-set. Each tag is `{ kind, name, by_user }`.
   - Locked items can be tagged too; they have real paths.
 - **The search bar** placeholder becomes "Search names, tag:name". The tag-only search shows results the same way as
   today.
+  - Added after M8: typing `tag:` plus one character opens a list of the known tag names with that prefix, narrowed
+    as the user types. Up/Down move the selection, Tab completes the selected name, a click completes the clicked one.
 
 ### Out of scope (deferred)
 

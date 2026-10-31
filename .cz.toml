@@ -4,8 +4,7 @@ tag_format = "v$version"
 # reads and writes [workspace.package] version in Cargo.toml (and the members in Cargo.lock)
 version_provider = "cargo"
 version_scheme = "semver2"
-# while 0.x, breaking changes bump the minor version
-major_version_zero = true
+major_version_zero = false
 update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"
 version_files = [

@@ -260,6 +260,10 @@ Design: [`superpowers/specs/2026-10-31-tags-design.md`](superpowers/specs/2026-1
   - A search of only tag terms lists the topmost passing nodes. With a name term as well, the walk goes on below a
     tagged folder.
   - Search inside a folder that already has the tag returns its direct children. The scope folder is never a hit.
+  - **Completion:** once the term under the caret is `tag:` plus one character, the search bar lists the known names
+    (`all_tags`, deduped across kinds) that start with it. Up/Down select, Tab or a click replaces the whole term
+    (quoted when the name has a space, followed by one space), Esc closes the list before it closes search. The logic is
+    in `app/src/lib/tagcomplete.ts`; the list reloads when the search field gets focus.
 - **Commands:** `node_tags`, `add_tag`, `remove_tag`, `hide_tag`, `unhide_tag`, `all_tags`. `Item.tags` carries a node's
   own effective tags. User tags and hides are read per call, so an edit needs no tree rebuild.
 - **UI:** `TagDots.svelte` (dots in the lower-right of a tile's art and at the end of a result row; the pill popover on
