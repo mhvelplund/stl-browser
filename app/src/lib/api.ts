@@ -4,6 +4,11 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type View = "models" | "files";
 
+export type TagKind = "user" | "support" | "scale" | "creator" | "edition";
+
+/** `byUser`: set (or confirmed) by the user rather than generated. */
+export type Tag = { kind: TagKind; name: string; byUser: boolean };
+
 export type Item = {
   name: string;
   kind: string;
@@ -21,6 +26,8 @@ export type Item = {
   pics: Thumb[];
   /** The saved (or default) slot in `[composite?, ...pics]`. */
   slot: number;
+  /** The item's own tags (inherited ones count in search only). */
+  tags: Tag[];
 };
 
 export type Thumb = { entryId: number; key: string };

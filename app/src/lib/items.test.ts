@@ -18,6 +18,7 @@ const base: Item = {
   composite: [],
   pics: [],
   slot: 0,
+  tags: [],
 };
 
 test("subtitles", () => {

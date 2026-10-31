@@ -2,6 +2,7 @@
   import type { Hit } from "./api";
   import { press, shouldStart, type Press } from "./dragstart";
   import KindIcon from "./KindIcon.svelte";
+  import TagDots from "./TagDots.svelte";
   import { hitId, runs, where } from "./search";
 
   let {
@@ -68,6 +69,7 @@
         <span class="icon"><KindIcon kind={h.kind} fileKind={h.fileKind} /></span>
         <span class="name">{#each runs(h.name, h.marks) as r, i (i)}{#if r.hit}<mark>{r.text}</mark>{:else}{r.text}{/if}{/each}</span>
         <span class="where">{where(h.parent, scope)}</span>
+        <TagDots tags={h.tags} inline />
       </button>
     </li>
   {/each}

@@ -5,6 +5,7 @@
   import { press, shouldStart, type Press } from "./dragstart";
   import { subtitle } from "./items";
   import { runs } from "./search";
+  import TagDots from "./TagDots.svelte";
   import TileArt from "./TileArt.svelte";
 
   let {
@@ -92,6 +93,7 @@
       <TileArt slot={all[slot] ?? null} {urls} kind={item.kind} fileKind={item.fileKind} />
       {#if badge}<span class="badge">{badge}</span>{/if}
       {#if all.length > 1}<span class="count">{slot + 1} / {all.length}</span>{/if}
+      <TagDots tags={item.tags} />
     </span>
     <span class="name">{#if marks}{#each runs(item.name, marks) as r, i (i)}{#if r.hit}<mark>{r.text}</mark>{:else}{r.text}{/if}{/each}{:else}{item.name}{/if}</span>
     <span class="sub">{caption ?? subtitle(item, view)}</span>

@@ -1,0 +1,34 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { dotKinds, groupByKind, KIND_LABEL, parseTagTerms } from "./tags.ts";
+
+const t = (kind: any, name: string, byUser = false) => ({ kind, name, byUser });
+
+test("dot kinds are distinct and in kind order", () => {
+  const tags = [t("scale", "25mm"), t("user", "b"), t("user", "a"), t("support", "supported")];
+  assert.deepEqual(dotKinds(tags), ["user", "support", "scale"]);
+  assert.deepEqual(dotKinds([]), []);
+});
+
+test("group by kind sorts the names inside a kind", () => {
+  const g = groupByKind([t("user", "zed"), t("scale", "32mm"), t("user", "alpha"), t("scale", "25mm")]);
+  assert.deepEqual(
+    g.map(([k, ts]) => [k, ts.map((x) => x.name)]),
+    [
+      ["user", ["alpha", "zed"]],
+      ["scale", ["25mm", "32mm"]],
+    ],
+  );
+});
+
+test("kind labels", () => {
+  assert.equal(KIND_LABEL.user, "Tag");
+  assert.equal(KIND_LABEL.edition, "Edition");
+});
+
+test("tag terms mirror the backend query parser", () => {
+  assert.deepEqual(parseTagTerms('x tag:"A  b" tag:c'), ["a b", "c"]);
+  assert.deepEqual(parseTagTerms("TAG:Foo xtag:bar"), ["foo"]);
+  assert.deepEqual(parseTagTerms('tag:"open end'), ["open end"]);
+  assert.deepEqual(parseTagTerms('tag: tag:"  "'), []);
+});

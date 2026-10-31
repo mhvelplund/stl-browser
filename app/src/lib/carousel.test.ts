@@ -21,6 +21,7 @@ function item(o: Partial<Item>): Item {
     composite: [],
     pics: [],
     slot: 0,
+    tags: [],
     ...o,
   };
 }
