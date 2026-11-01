@@ -38,7 +38,8 @@ crates/stl-core/    pure logic, no I/O
                       search.rs, filter.rs (shown endings), tags.rs, export.rs (export plans), locate.rs (view switch)
 crates/stl-scan/    archive access: archive.rs (ZIP/7Z/RAR behind one `Archive` trait), nested.rs, extract.rs,
                     session.rs (ExtractSession), discover.rs
-crates/stl-thumb/   cache.rs, image.rs, mesh.rs (STL/OBJ), raster.rs (CPU renderer), generate.rs, queue.rs
+crates/stl-thumb/   cache.rs, image.rs, mesh.rs (STL/OBJ), preview.rs (3MF/LYS pictures), raster.rs (CPU renderer and
+                    turntable strip), generate.rs, queue.rs
 crates/stl-drag/    Windows only: data.rs (IDataObject), stream.rs, source.rs; `prepare` (MTA), `run_drag` (STA)
 crates/stl-index/   paths, db.rs (schema + migrations), config.rs, scanstore.rs, resolvestore.rs, views.rs,
                     thumbstore.rs, tagstore.rs, export.rs, parity.rs; bin/stlx.rs (dev CLI)

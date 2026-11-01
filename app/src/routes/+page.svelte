@@ -39,6 +39,13 @@
   let seq = 0;
   /** Thumbnail urls by entry id (`null` = no thumbnail); entry ids hold until an index run. */
   const urls = new SvelteMap<number, string | null>();
+  /** A file's own extra picture urls (a 3MF's carousel) by entry id, cleared with `urls`. */
+  const extras = new SvelteMap<number, string[]>();
+  function gotThumb(t: { entryId: number; url: string | null; extras: string[] }) {
+    urls.set(t.entryId, t.url);
+    if (t.extras.length) extras.set(t.entryId, t.extras);
+    else extras.delete(t.entryId);
+  }
   /** Carousel slots picked in this listing, by item key. */
   const chosen = new SvelteMap<string, number>();
   let thumbPending = $state(0);
@@ -109,10 +116,10 @@
     thumbTimer = setTimeout(async () => {
       const items = showingResults ? (asList ? [] : (found?.hits ?? [])) : listing?.items;
       if (!items) return;
-      const r = requests(items, chosen, visible);
+      const r = requests(items, chosen, visible, extras);
       try {
         const got = await api.requestThumbs(r.high, r.low);
-        for (const t of got.ready) urls.set(t.entryId, t.url);
+        for (const t of got.ready) gotThumb(t);
         thumbPending = got.pending;
       } catch (e) {
         run = { ...run, hint: `Thumbnails unavailable: ${e}` };
@@ -122,7 +129,7 @@
 
   function pickSlot(item: Item, i: number) {
     chosen.set(item.key, i);
-    const s = slots(item)[i];
+    const s = slots(item, extras)[i];
     if (s) api.selectThumb(item.key, slotKey(s)).catch((e) => (run = { ...run, hint: `Could not save the thumbnail choice: ${e}` }));
     askThumbs();
   }
@@ -443,6 +450,7 @@
     progress = null;
     apply({ type: "done", done: d });
     urls.clear(); // entry ids change when sources are re-listed
+    extras.clear();
     refreshStatus();
     load(nav, scroll, true);
     if (searching) runSearch(true); // the tree changed
@@ -524,7 +532,7 @@
         notice = extractHint(d);
       }),
       api.onThumbReady((r) => {
-        urls.set(r.entryId, r.url);
+        gotThumb(r);
         thumbPending = r.pending;
       }),
     ];
@@ -588,6 +596,7 @@
             onDragOut={dragHit}
             onMenu={showMenu}
             {urls}
+            {extras}
             {chosen}
             onSlot={pickSlot}
             onVisible={(r) => {
@@ -641,6 +650,7 @@
             onDragOut={dragOut}
             onMenu={showMenu}
             {urls}
+            {extras}
             {chosen}
             onSlot={pickSlot}
             onVisible={(r) => {

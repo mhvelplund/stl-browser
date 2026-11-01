@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { requests, shown, slotKey, slots, step } from "./carousel.ts";
+import { current, requests, shown, slotKey, slots, step } from "./carousel.ts";
 import type { Item, Thumb } from "./api.ts";
 
 const t = (n: number): Thumb => ({ entryId: n, key: "k" + n });
@@ -64,4 +64,29 @@ test("requests: an entry shared by two tiles is asked for once, high wins", () =
 test("requests: a chosen slot past the end falls back to the item's slot", () => {
   const a = item({ key: "a", pics: [t(1), t(2)], slot: 1 });
   assert.deepEqual(requests([a], new Map([["a", 9]]), { first: 0, last: 1 }).high, [2]);
+});
+
+test("a file's own pictures follow its still, without a composite", () => {
+  const f = item({ key: "f", kind: "file", fileKind: "model", pics: [t(5)] });
+  const extras = new Map([[5, ["u1", "u2"]]]);
+  const s = slots(f, extras);
+  assert.deepEqual(
+    s.map((x) => x.kind),
+    ["pic", "sub", "sub"],
+  );
+  assert.equal(slotKey(s[0]), "k5");
+  assert.equal(slotKey(s[2]), "k5#2");
+  assert.deepEqual(shown(s[2]), [5]);
+  assert.equal(slots(f).length, 1); // until the extras arrive
+  // a folder with one picture doesn't take that file's pictures
+  assert.equal(slots(item({ pics: [t(5)] }), extras).length, 1);
+  // the entry is asked for once
+  assert.deepEqual(requests([f], new Map([["f", 2]]), { first: 0, last: 1 }, extras), { high: [5], low: [] });
+});
+
+test("a saved picture of a file's own shows slot 0 until it arrives", () => {
+  const f = item({ key: "f", fileKind: "model", pics: [t(5)], slot: 2 });
+  assert.equal(current(f, new Map()), 0);
+  assert.equal(current(f, new Map(), new Map([[5, ["u1", "u2"]]])), 2);
+  assert.equal(current(f, new Map([["f", 1]]), new Map([[5, ["u1"]]])), 1);
 });

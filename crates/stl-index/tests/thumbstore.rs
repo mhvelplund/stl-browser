@@ -8,7 +8,7 @@ use stl_index::thumbstore::{lookup, record};
 use stl_index::{db, resolvestore, scanstore};
 use stl_scan::extract::SourceKind;
 use stl_scan::nested::ListOptions;
-use stl_thumb::cache::{cache_rel, content_name, location_dir};
+use stl_thumb::cache::{cache_rel, content_name, location_dir, pics_rel, spin_rel};
 use stl_thumb::generate::{Failure, Job};
 
 /// `<tmp>/lib/Vol/Coll/{Kit.zip (Kit/a.png, Kit/b.stl), c.png}`, indexed.
@@ -103,6 +103,57 @@ fn crc_shortcut_finds_existing_file() {
     assert_eq!(l.ready, [(a, rel.clone())]);
     let stored: String = conn.query_row("SELECT cache_rel FROM thumbs WHERE entry_id = ?", [a], |r| r.get(0)).unwrap();
     assert_eq!(stored, rel);
+}
+
+#[test]
+fn mesh_without_its_strip_shows_and_is_queued() {
+    // a mesh cached before turntable strips: the still shows now, a job makes the strip
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = indexed(tmp.path());
+    let b = id(&conn, "Kit/b.stl");
+    let j = job(&conn, tmp.path(), b);
+    let rel = cache_rel(&location_dir(&j.source_path, &j.chain), &content_name(&j.crc, j.size).unwrap());
+    touch(&thumbs(tmp.path()), &rel);
+    for _ in 0..2 {
+        // the CRC shortcut first, then the stored row
+        let l = lookup(&conn, &thumbs(tmp.path()), &[b]).unwrap();
+        assert_eq!(l.ready, [(b, rel.clone())]);
+        assert_eq!(l.jobs.len(), 1);
+        assert_eq!(rows(&conn), 1);
+    }
+    touch(&thumbs(tmp.path()), &spin_rel(&rel));
+    let l = lookup(&conn, &thumbs(tmp.path()), &[b]).unwrap();
+    assert_eq!(l.ready, [(b, rel)]);
+    assert!(l.jobs.is_empty());
+}
+
+#[test]
+fn threemf_without_its_carousel_shows_and_is_queued() {
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "lib/Vol/Coll/Kit.zip", &zip(&[("Kit/a.3mf", b"project")]));
+    let mut conn = db::open(&tmp.path().join("index.db")).unwrap();
+    scanstore::add_root(&conn, &tmp.path().join("lib/Vol")).unwrap();
+    resolvestore::index_all(&mut conn, &ListOptions::default(), &mut |_| {}).unwrap();
+    let a = id(&conn, "Kit/a.3mf");
+    let j = job(&conn, tmp.path(), a);
+    let rel = cache_rel(&location_dir(&j.source_path, &j.chain), &content_name(&j.crc, j.size).unwrap());
+    touch(&thumbs(tmp.path()), &rel);
+    let l = lookup(&conn, &thumbs(tmp.path()), &[a]).unwrap();
+    assert_eq!((l.ready.len(), l.jobs.len()), (1, 1));
+    touch(&thumbs(tmp.path()), &pics_rel(&rel));
+    let l = lookup(&conn, &thumbs(tmp.path()), &[a]).unwrap();
+    assert_eq!((l.ready.len(), l.jobs.len()), (1, 0));
+}
+
+#[test]
+fn scenes_get_jobs() {
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "lib/Vol/Coll/Kit.zip", &zip(&[("Kit/a.lys", b"scene"), ("Kit/b.3mf", b"project")]));
+    let mut conn = db::open(&tmp.path().join("index.db")).unwrap();
+    scanstore::add_root(&conn, &tmp.path().join("lib/Vol")).unwrap();
+    resolvestore::index_all(&mut conn, &ListOptions::default(), &mut |_| {}).unwrap();
+    let ids = [id(&conn, "Kit/a.lys"), id(&conn, "Kit/b.3mf")];
+    assert_eq!(lookup(&conn, &thumbs(tmp.path()), &ids).unwrap().jobs.len(), 2);
 }
 
 #[test]

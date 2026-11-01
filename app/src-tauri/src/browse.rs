@@ -326,7 +326,8 @@ fn nested(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> (Vec<Thum
             Some((kind, th)) => {
                 let (list, cap) = match kind {
                     ThumbKind::Image => (&mut images, MAX_IMAGES),
-                    ThumbKind::Mesh => (&mut meshes, MAX_MESHES),
+                    // a scene's own preview pictures the model like a render does
+                    ThumbKind::Mesh | ThumbKind::Preview => (&mut meshes, MAX_MESHES),
                 };
                 if list.len() < cap && seen.insert(th.entry_id) {
                     list.push(th);
@@ -380,7 +381,14 @@ fn carousel(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> (Vec<Th
     let n = &t.nodes[id];
     let pics = pics(t, id, selected);
     if is_file_kind(n.kind) {
-        return (Vec::new(), pics, 0);
+        // a file's own extra pictures (a 3MF's plates and photos) come with its thumbnail;
+        // `<its key>#<n>` saves the n-th of them, slot 0 is the file's still
+        let slot = pics
+            .first()
+            .zip(selected.get(&n.key))
+            .and_then(|(p, k)| k.strip_prefix(p.key.as_str())?.strip_prefix('#')?.parse().ok())
+            .unwrap_or(0);
+        return (Vec::new(), pics, slot);
     }
     let mut cells: Vec<Thumb> = Vec::new();
     for &c in &n.children {
@@ -793,6 +801,21 @@ mod tests {
         select(&state, &orc.key, &orc.pics[1].key);
         let l = list_folder_impl(&state, View::Files, segs(&["vol", "coll"])).unwrap();
         assert_eq!(item(&l, "orc").slot, 1);
+    }
+
+    #[test]
+    fn a_files_own_picture_choice_comes_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = library(dir.path());
+        let at = |s: &AppState| list_folder_impl(s, View::Files, segs(&["vol", "coll", "orc"])).unwrap();
+        let file = item(&at(&state), "orc.stl").clone();
+        assert_eq!((file.pics.len(), file.slot), (1, 0));
+        select(&state, &file.key, &format!("{}#3", file.pics[0].key));
+        assert_eq!(item(&at(&state), "orc.stl").slot, 3);
+        select(&state, &file.key, "f:other|x.3mf#3");
+        assert_eq!(item(&at(&state), "orc.stl").slot, 0);
+        select(&state, &file.key, &format!("{}#x", file.pics[0].key));
+        assert_eq!(item(&at(&state), "orc.stl").slot, 0);
     }
 
     #[test]

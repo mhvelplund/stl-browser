@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use rusqlite::Connection;
 use serde::Serialize;
 use stl_index::{db, thumbstore};
-use stl_thumb::cache::is_valid_rel;
+use stl_thumb::cache::{extra_rels, is_valid_rel};
 use stl_thumb::generate::{Failure, Job, generate};
 use stl_thumb::queue::{Queue, default_threads};
 
@@ -17,8 +17,15 @@ use stl_thumb::queue::{Queue, default_threads};
 pub struct ThumbReady {
     pub entry_id: i64,
     pub url: Option<String>,
+    /// More pictures of the file after `url`, for its carousel (a 3MF's plates and photos).
+    pub extras: Vec<String>,
     /// Jobs still queued or running.
     pub pending: usize,
+}
+
+/// The urls of the carousel pictures cached after the still at `rel`.
+fn extra_urls(dir: &Path, rel: &str) -> Vec<String> {
+    extra_rels(dir, rel).iter().map(|r| thumb_url(r)).collect()
 }
 
 pub type Notify = Arc<dyn Fn(ThumbReady) + Send + Sync>;
@@ -61,7 +68,8 @@ impl ThumbService {
                     }
                     // the whole batch counts as in flight until it returns
                     let pending = run_queue.get().map_or(0, |q| q.pending()).saturating_sub(done);
-                    notify(ThumbReady { entry_id: job.entry_id, url: outcome.ok().map(|r| thumb_url(&r)), pending });
+                    let extras = outcome.as_ref().map_or(Vec::new(), |r| extra_urls(&run_dir, r));
+                    notify(ThumbReady { entry_id: job.entry_id, url: outcome.ok().map(|r| thumb_url(&r)), extras, pending });
                 });
             }),
         );
@@ -78,8 +86,13 @@ impl ThumbService {
         let (h, lo): (Vec<Job>, Vec<Job>) = l.jobs.into_iter().partition(|j| hot.contains(&j.entry_id));
         self.queue.replace(h, lo);
         let pending = self.queue.pending();
-        let ready = l.ready.into_iter().map(|(entry_id, rel)| ThumbReady { entry_id, url: Some(thumb_url(&rel)), pending });
-        let failed = l.failed.into_iter().map(|entry_id| ThumbReady { entry_id, url: None, pending });
+        let ready = l.ready.into_iter().map(|(entry_id, rel)| ThumbReady {
+            entry_id,
+            url: Some(thumb_url(&rel)),
+            extras: extra_urls(&self.dir, &rel),
+            pending,
+        });
+        let failed = l.failed.into_iter().map(|entry_id| ThumbReady { entry_id, url: None, extras: Vec::new(), pending });
         Ok(ready.chain(failed).collect())
     }
 

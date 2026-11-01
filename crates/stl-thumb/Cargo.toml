@@ -6,10 +6,11 @@ edition.workspace = true
 [dependencies]
 blake3 = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
+serde_json = "1.0.154"
 stl-scan = { path = "../stl-scan" }
 stl_io = "0.11.0"
 tobj = "4.0.5"
+zip = "9.1.2"
 
 [dev-dependencies]
 tempfile = "3.27.0"
-zip = "9"
