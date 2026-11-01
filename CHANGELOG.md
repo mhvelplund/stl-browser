@@ -1,3 +1,10 @@
+## v1.4.1 (2026-11-01)
+
+### Fix
+
+- macOS drag promises declare the file's real type, and a panic in the delegate never reaches AppKit
+- name a blocked drag folder like v1.2 as "v1.2 2", and count failed folders apart from files
+
 ## v1.4.0 (2026-11-01)
 
 ### Feat
