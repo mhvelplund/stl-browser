@@ -1,6 +1,7 @@
 # On every push to main, commitizen picks the next version from the conventional commits since the last tag,
-# commits the bump and CHANGELOG.md as the commitizen-ci GitHub App, and tags it. Windows then builds the exe and
-# the NSIS installer and attaches them to a new GitHub release.
+# commits the bump and CHANGELOG.md as the commitizen-ci GitHub App, and tags it. Windows (exe + NSIS installer)
+# and macOS (universal binary + DMG) then build in parallel, and once both have built, one job attaches all four
+# files to a new GitHub release, so a failed build publishes nothing.
 name: release
 
 on:
@@ -60,12 +61,10 @@ jobs:
           name: notes
           path: ${{ runner.temp }}/notes.md
 
-  build:
+  build-windows:
     needs: bump
     if: needs.bump.outputs.released == 'true'
     runs-on: windows-latest
-    permissions:
-      contents: write
     env:
       VERSION: ${{ needs.bump.outputs.version }}
     steps:
@@ -83,15 +82,81 @@ jobs:
 
       - run: npm --prefix app run build:exe
 
+      - name: Name the files
+        shell: bash
+        run: |
+          mkdir dist
+          cp "target/release/bundle/nsis/STL Browser_${VERSION}_x64-setup.exe" "dist/stl-browser_${VERSION}_x64-setup.exe"
+          cp "target/release/stl-browser-${VERSION}.exe" dist/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: dist/
+          if-no-files-found: error
+
+  build-macos:
+    needs: bump
+    if: needs.bump.outputs.released == 'true'
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.bump.outputs.version }}
+
+      - uses: jdx/mise-action@v5
+
+      # a universal binary needs both Apple targets
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm --prefix app ci
+
+      - run: npm --prefix app run build:installer
+
+      - run: npm --prefix app run build:exe
+
+      - name: Name the files
+        run: |
+          mkdir dist
+          out=target/universal-apple-darwin/release
+          cp "${out}/bundle/dmg/STL Browser_${VERSION}_universal.dmg" "dist/stl-browser_${VERSION}_universal.dmg"
+          cp "${out}/stl-browser-${VERSION}-macos" dist/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    needs: [bump, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.bump.outputs.version }}
+    steps:
       - uses: actions/download-artifact@v8
         with:
           name: notes
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows
+          path: dist
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos
+          path: dist
+
       - name: Create the release
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp "target/release/bundle/nsis/STL Browser_${VERSION}_x64-setup.exe" "stl-browser_${VERSION}_x64-setup.exe"
-          gh release create "v$VERSION" --title "v$VERSION" --notes-file notes.md \
-            "target/release/stl-browser-${VERSION}.exe" "stl-browser_${VERSION}_x64-setup.exe"
+          ls -l dist
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "v$VERSION" --notes-file notes.md dist/*
