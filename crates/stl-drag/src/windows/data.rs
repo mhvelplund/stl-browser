@@ -106,7 +106,7 @@ impl DataObject {
         let limit = d.size.ok_or(Error::from(E_FAIL))?;
         let contents = self.contents.clone();
         let index = *index;
-        let r = catch_unwind(AssertUnwindSafe(|| crate::stream::temp_stream(limit, |f| contents.write(index, f))));
+        let r = catch_unwind(AssertUnwindSafe(|| super::stream::temp_stream(limit, |f| contents.write(index, f))));
         match r {
             Ok(Ok(s)) => Ok(STGMEDIUM { tymed: TYMED_ISTREAM.0 as u32, u: STGMEDIUM_0 { pstm: ManuallyDrop::new(Some(s)) }, pUnkForRelease: ManuallyDrop::new(None) }),
             _ => Err(E_FAIL.into()),

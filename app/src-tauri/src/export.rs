@@ -280,7 +280,7 @@ mod drag {
     pub fn descriptors(files: &[ExportFile]) -> Vec<stl_drag::Descriptor> {
         files
             .iter()
-            .map(|f| stl_drag::Descriptor { rel: f.rel.replace('/', "\\"), is_dir: f.is_dir, size: f.loc.as_ref().and_then(|l| l.size) })
+            .map(|f| stl_drag::Descriptor { rel: f.rel.clone(), is_dir: f.is_dir, size: f.loc.as_ref().and_then(|l| l.size) })
             .collect()
     }
 
@@ -533,7 +533,7 @@ mod tests {
         state.shown = Shown::new(["stl", "jpg"]);
         let (files, _) = build_export(&state, View::Files, &tgs(&["vol", "coll"], &["orc"])).unwrap();
         let d = drag::descriptors(&files);
-        assert_eq!(d[2].rel, "orc\\orc.stl");
+        assert_eq!(d[2].rel, "orc/orc.stl");
         assert_eq!(d[2].size, Some(1));
         assert!(d[0].is_dir);
         let c = drag::DragContents::new(files);
