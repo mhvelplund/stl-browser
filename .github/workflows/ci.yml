@@ -34,7 +34,8 @@ jobs:
 
       - run: npm --prefix app test
 
-      - run: cargo test --workspace
+      # --no-fail-fast: one run shows every platform-specific failure, not just the first crate's
+      - run: cargo test --workspace --no-fail-fast
 
   # TEMPORARY: dry run of release.yml's build-macos steps; remove before merging
   macos-bundle:
@@ -58,7 +59,12 @@ jobs:
           file dist/*
           lipo -info "dist/stl-browser-${VERSION}-macos"
           codesign -dv --verbose=2 "dist/stl-browser-${VERSION}-macos"
-          codesign -dv --verbose=2 "${out}/bundle/macos/STL Browser.app"
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" "dist/stl-browser_${VERSION}_universal.dmg"
+          ls -la "$RUNNER_TEMP/dmg"
+          codesign -dv --verbose=2 "$RUNNER_TEMP/dmg/STL Browser.app"
+          codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/dmg/STL Browser.app"
+          lipo -info "$RUNNER_TEMP/dmg/STL Browser.app/Contents/MacOS/"*
+          hdiutil detach "$RUNNER_TEMP/dmg"
       - uses: actions/upload-artifact@v7
         with:
           name: macos

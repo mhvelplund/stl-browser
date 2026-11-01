@@ -116,12 +116,8 @@ This builds the Svelte UI and then the Rust app in release mode (LTO, so the fir
 | `target/release/app.exe`                 | The app itself; it runs without installing |
 | `target/release/bundle/nsis/*-setup.exe` | NSIS installer (per-user, no admin needed) |
 
-On macOS the same command builds a universal app (Apple Silicon and Intel) and a DMG instead:
-
-| Output                                                         | What it is                     |
-|----------------------------------------------------------------|--------------------------------|
-| `target/universal-apple-darwin/release/bundle/macos/*.app`     | The app bundle (ad-hoc signed) |
-| `target/universal-apple-darwin/release/bundle/dmg/*.dmg`       | Disk image with the app        |
+On macOS the same command builds a universal app (Apple Silicon and Intel, ad-hoc signed) and packs it in a disk image
+at `target/universal-apple-darwin/release/bundle/dmg/STL Browser_<version>_universal.dmg`.
 
 Tauri downloads NSIS on the first Windows build. Like `build:exe` below, `build:installer` remaps local source paths so the
 binary doesn't embed paths from your machine (a plain `tauri build` doesn't). To build only the executable, skip the

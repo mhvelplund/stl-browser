@@ -606,7 +606,7 @@ pub fn scope(views: &Views, view: View, path: &[String]) -> Result<Option<Vec<Pa
         let k = p.to_lowercase();
         let covered = out.iter().any(|o| {
             let o = o.to_lowercase();
-            k == o || k.strip_prefix(&o).is_some_and(|r| r.starts_with('\\'))
+            k == o || k.strip_prefix(&o).is_some_and(|r| r.starts_with(['\\', '/']))
         });
         if !covered {
             out.push(p);
