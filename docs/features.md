@@ -233,16 +233,20 @@ Each `Item` carries `composite` (0–4 cells, empty = no composite slot), `pics`
 #### macOS (file promises)
 
 - **One `NSFilePromiseProvider` per top-level item** (a dragged file or folder), with a generic icon for its type as
-  the drag image. `run_drag` runs on the main thread from the window's content view with a synthesized mouse-dragged
+  the drag image. A file's promise declares the type macOS knows for its extension (macOS 11+), else `public.data`; a
+  folder's is `public.folder`. `run_drag` runs on the main thread from the window's content view with a synthesized mouse-dragged
   event; the drag goes on after it returns. Only copy is offered.
 - **Finder asks for each item after the drop**, and the delegate writes it on its own serial `NSOperationQueue`, so
   the extraction never blocks the UI. The writing is `promise::Promises` (platform-neutral, unit-tested on both OSes):
   - Each file goes to a uniquely named `.<name>.….part` and is moved into place when complete; on failure nothing is
     left.
-  - Nothing is overwritten: a name already in the drop folder becomes `name 2`, `name 2.stl`… as Finder does. The
-    final move never replaces a file, so two drops into one folder at once can't clobber each other.
-  - A folder writes all its files; a failed file doesn't stop the rest, and Finder shows "N of M files could not be
-    written" with the first error.
+  - Nothing is overwritten: a name already in the drop folder becomes `name 2`, `name 2.stl`… as Finder does (a
+    folder keeps its whole name, so `v1.2` becomes `v1.2 2`). The final move never replaces a file, so two drops into
+    one folder at once can't clobber each other.
+  - A folder writes all its files; a failed file doesn't stop the rest. The error handed back to Finder says how
+    many files (and folders) could not be written, with the first error; whether Finder shows that text is up to
+    Finder.
+  - A panic in the delegate is caught and becomes that error, so it never unwinds into AppKit.
   - A file longer than its indexed size fails. There is no path length limit.
 - **The read-ahead is released** when the drag is cancelled, after the last item is written, or, if Finder never
   asked for any of its files, when the next drag starts. A drag that is still being written is kept alive (its source

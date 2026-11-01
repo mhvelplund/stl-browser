@@ -10,7 +10,7 @@ use std::sync::Arc;
 use block2::DynBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, available, define_class, msg_send};
 use objc2_app_kit::{
     NSDragOperation, NSDraggingContext, NSDraggingItem, NSDraggingSession, NSDraggingSource, NSEvent, NSEventModifierFlags,
     NSEventType, NSFilePromiseProvider, NSFilePromiseProviderDelegate, NSView, NSWorkspace,
@@ -19,8 +19,9 @@ use objc2_foundation::{
     NSArray, NSDictionary, NSError, NSLocalizedDescriptionKey, NSNumber, NSObject, NSObjectProtocol, NSOperationQueue, NSPoint,
     NSProcessInfo, NSRect, NSSize, NSString, NSURL, ns_string,
 };
+use objc2_uniform_type_identifiers::{UTType, UTTypeData};
 
-use crate::promise::Promises;
+use crate::promise::{Promises, TopItem};
 use crate::{Contents, Descriptor, DragOutcome};
 
 /// A drag's promises, waiting for `run_drag` on the main thread.
@@ -87,10 +88,9 @@ pub fn run_drag(p: Prepared, ns_view: *mut c_void) -> Result<DragOutcome, String
         .iter()
         .enumerate()
         .map(|(i, t)| {
-            let file_type = if t.is_dir { ns_string!("public.folder") } else { ns_string!("public.data") };
             let provider = NSFilePromiseProvider::initWithFileType_delegate(
                 NSFilePromiseProvider::alloc(),
-                file_type,
+                &promise_type(t),
                 ProtocolObject::from_ref(&*delegate),
             );
             let index = NSNumber::numberWithUnsignedInteger(i);
@@ -120,6 +120,23 @@ pub fn run_drag(p: Prepared, ns_view: *mut c_void) -> Result<DragOutcome, String
     Ok(DragOutcome::Started)
 }
 
+/// The type a promise declares: `public.folder`, the type macOS knows for the file's extension
+/// (macOS 11+), or `public.data`.
+fn promise_type(t: &TopItem) -> Retained<NSString> {
+    if t.is_dir {
+        return NSString::from_str("public.folder");
+    }
+    if available!(macos = 11.0)
+        && let Some(ext) = Path::new(&t.name).extension()
+        && let Some(ut) = UTType::typeWithFilenameExtension(&NSString::from_str(&ext.to_string_lossy()))
+        // SAFETY: `UTTypeData` is a constant the system defines on macOS 11+.
+        && !ut.isDynamic() && ut.conformsToType(unsafe { UTTypeData })
+    {
+        return ut.identifier();
+    }
+    NSString::from_str("public.data")
+}
+
 struct DelegateIvars {
     promises: Arc<Promises>,
     queue: Retained<NSOperationQueue>,
@@ -136,20 +153,21 @@ define_class!(
     unsafe impl NSFilePromiseProviderDelegate for Delegate {
         #[unsafe(method_id(filePromiseProvider:fileNameForType:))]
         fn file_name(&self, provider: &NSFilePromiseProvider, _file_type: &NSString) -> Retained<NSString> {
-            let name = item_of(provider).and_then(|i| self.ivars().promises.items().get(i)).map_or("item", |t| t.name.as_str());
-            NSString::from_str(name)
+            // a panic must not unwind into AppKit
+            let name = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                item_of(provider).and_then(|i| self.ivars().promises.items().get(i)).map(|t| t.name.clone())
+            }));
+            NSString::from_str(name.ok().flatten().as_deref().unwrap_or("item"))
         }
 
         #[unsafe(method(filePromiseProvider:writePromiseToURL:completionHandler:))]
         fn write_promise(&self, provider: &NSFilePromiseProvider, url: &NSURL, done: &DynBlock<dyn Fn(*mut NSError)>) {
-            let r = match (item_of(provider), url.path()) {
-                (Some(i), Some(path)) => {
-                    let promises = &self.ivars().promises;
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| promises.write(i, Path::new(&path.to_string()))))
-                        .unwrap_or_else(|_| Err("internal error".into()))
-                }
+            // a panic must not unwind into AppKit, and the completion handler must always be called
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match (item_of(provider), url.path()) {
+                (Some(i), Some(path)) => self.ivars().promises.write(i, Path::new(&path.to_string())),
                 _ => Err("Finder asked for an unknown item".into()),
-            };
+            }))
+            .unwrap_or_else(|_| Err("internal error".into()));
             match r {
                 Ok(_) => done.call((std::ptr::null_mut(),)),
                 Err(e) => {

@@ -47,14 +47,15 @@ pub fn top_items(descs: &[Descriptor]) -> Vec<TopItem> {
 }
 
 /// `dest`, or if something is there already, the first free `stem N.ext` (`name N` for a folder
-/// or a name without an extension), counting from 2 as Finder does.
-pub fn free_dest(dest: &Path) -> PathBuf {
+/// or a name without an extension), counting from 2 as Finder does. `is_dir` is the kind of
+/// the item being written, not of whatever is in the way.
+pub fn free_dest(dest: &Path, is_dir: bool) -> PathBuf {
     if !dest.exists() {
         return dest.to_path_buf();
     }
     let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let (stem, ext) = match name.rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() && !dest.is_dir() => (stem.to_string(), format!(".{ext}")),
+        Some((stem, ext)) if !stem.is_empty() && !is_dir => (stem.to_string(), format!(".{ext}")),
         _ => (name.clone(), String::new()),
     };
     (2..)
@@ -139,14 +140,14 @@ impl Promises {
         }
         // create_dir fails on a name taken since free_dest looked (another drop into the same folder)
         let out = loop {
-            let out = free_dest(dest);
+            let out = free_dest(dest, true);
             match std::fs::create_dir(&out) {
                 Ok(()) => break out,
                 Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
                 Err(e) => return Err(format!("{}: {e}", out.display())),
             }
         };
-        let (mut files, mut failed, mut first) = (0, 0, None);
+        let (mut files, mut failed, mut failed_dirs, mut first) = (0, 0, 0, None);
         for &m in &t.members {
             let d = &self.descs[m];
             let below = d.rel.split_once('/').map_or("", |(_, r)| r);
@@ -159,14 +160,25 @@ impl Promises {
                 parent.unwrap_or(Ok(())).and_then(|()| write_file(contents, m, d.size, &path, false).map(|_| ()))
             };
             if let Err(e) = r {
-                failed += 1;
+                if d.is_dir {
+                    failed_dirs += 1;
+                } else {
+                    failed += 1;
+                }
                 first.get_or_insert(format!("{}: {e}", d.rel));
             }
         }
-        match first {
-            Some(first) => Err(format!("{failed} of {files} files could not be written; first: {first}")),
-            None => Ok(out),
+        let Some(first) = first else { return Ok(out) };
+        let mut what = Vec::new();
+        if failed > 0 {
+            what.push(format!("{failed} of {files} files"));
         }
+        match failed_dirs {
+            0 => {}
+            1 => what.push("1 folder".to_string()),
+            n => what.push(format!("{n} folders")),
+        }
+        Err(format!("{} could not be written; first: {first}", what.join(" and ")))
     }
 }
 
@@ -183,7 +195,7 @@ fn write_file(contents: &dyn Contents, index: usize, size: Option<u64>, path: &P
     w.out.flush().map_err(|e| e.to_string())?;
     drop(w);
     loop {
-        let target = if next_free { free_dest(path) } else { path.to_path_buf() };
+        let target = if next_free { free_dest(path, false) } else { path.to_path_buf() };
         match tmp.persist_noclobber(&target) {
             Ok(_) => return Ok(target),
             Err(e) if next_free && e.error.kind() == ErrorKind::AlreadyExists => tmp = e.file,
@@ -301,9 +313,9 @@ mod tests {
         std::fs::write(t.join("a.stl"), b"1").unwrap();
         std::fs::write(t.join("a 2.stl"), b"2").unwrap();
         std::fs::create_dir(t.join("m")).unwrap();
-        assert_eq!(free_dest(&t.join("a.stl")), t.join("a 3.stl"));
-        assert_eq!(free_dest(&t.join("m")), t.join("m 2"));
-        assert_eq!(free_dest(&t.join("free.stl")), t.join("free.stl"));
+        assert_eq!(free_dest(&t.join("a.stl"), false), t.join("a 3.stl"));
+        assert_eq!(free_dest(&t.join("m"), true), t.join("m 2"));
+        assert_eq!(free_dest(&t.join("free.stl"), false), t.join("free.stl"));
 
         std::fs::write(t.join("x.stl"), b"old").unwrap();
         let p = promises(&[("x.stl", false, b"new")]);
@@ -322,6 +334,29 @@ mod tests {
         assert_eq!(std::fs::read(tmp.path().join("m").join("b.stl")).unwrap(), b"b");
         assert!(!tmp.path().join("m").join("a.stl").exists());
         assert!(parts_under(tmp.path()).is_empty());
+    }
+
+    #[test]
+    fn free_name_follows_the_item_kind_not_what_is_in_the_way() {
+        let tmp = tempfile::tempdir().unwrap();
+        let t = tmp.path();
+        // a folder item blocked by a file: the dot is part of the folder's name
+        std::fs::write(t.join("v1.2"), b"file").unwrap();
+        let p = promises(&[("v1.2", true, b""), ("v1.2/a.stl", false, b"a")]);
+        assert_eq!(p.write(0, &t.join("v1.2")).unwrap(), t.join("v1.2 2"));
+        // a file item blocked by a folder: the extension stays at the end
+        std::fs::create_dir(t.join("x.stl")).unwrap();
+        let p = promises(&[("x.stl", false, b"x")]);
+        assert_eq!(p.write(0, &t.join("x.stl")).unwrap(), t.join("x 2.stl"));
+    }
+
+    #[test]
+    fn failed_folder_is_counted_apart_from_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        // the file `sub` takes the name the folder `sub` needs, so the folder and its file fail
+        let p = promises(&[("m", true, b""), ("m/sub", false, b"s"), ("m/sub", true, b""), ("m/sub/b.stl", false, b"b")]);
+        let e = p.write(0, &tmp.path().join("m")).unwrap_err();
+        assert!(e.starts_with("1 of 2 files and 1 folder could not be written; first: m/sub:"), "{e}");
     }
 
     #[test]
