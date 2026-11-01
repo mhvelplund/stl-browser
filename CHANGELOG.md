@@ -1,3 +1,9 @@
+## v1.4.2 (2026-11-01)
+
+### Fix
+
+- the app crate inherits the workspace version
+
 ## v1.4.1 (2026-11-01)
 
 ### Fix
