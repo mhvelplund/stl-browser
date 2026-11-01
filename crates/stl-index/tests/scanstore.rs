@@ -291,7 +291,7 @@ fn scope_inside_an_archive_or_below_a_folder_source() {
     let scope = vec![f.root.join("A/sub")];
     let s = scan_run(&mut f, &scanstore::ScanRun { scope: Some(&scope), ..Default::default() });
     assert_eq!(s.listed, 1);
-    assert_eq!(entries_of(&f.conn, r"\A"), 2);
+    assert_eq!(entries_of(&f.conn, &format!("{}A", std::path::MAIN_SEPARATOR)), 2);
 }
 
 #[test]

@@ -666,7 +666,7 @@ mod tests {
         let names: Vec<_> = l.items.iter().map(|i| i.name.as_str()).collect();
         assert_eq!(names, ["notes.txt", "orc.jpg", "orc.stl"]);
         let stl = item(&l, "orc.stl");
-        assert!(stl.real[0].ends_with("Coll\\Orc\\orc.stl"), "{:?}", stl.real);
+        assert!(std::path::Path::new(&stl.real[0]).ends_with("Coll/Orc/orc.stl"), "{:?}", stl.real);
         assert_eq!(stl.file_kind.as_deref(), Some("model"));
         assert!(!stl.openable);
         let coll = list_folder_impl(&state, View::Files, segs(&["vol", "coll"])).unwrap();
