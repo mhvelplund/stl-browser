@@ -1,3 +1,15 @@
+## v1.3.0 (2026-11-01)
+
+### Feat
+
+- attach the macOS DMG and binary to every release
+- build a universal macOS DMG and binary
+
+### Fix
+
+- keep / separators in real paths below a macOS folder
+- mark files opened from archives with quarantine on macOS
+
 ## v1.2.0 (2026-11-01)
 
 ### Feat
