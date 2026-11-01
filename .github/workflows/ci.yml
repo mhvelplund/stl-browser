@@ -1,0 +1,38 @@
+# Runs the Rust and UI tests on Windows and macOS for every pull request.
+name: ci
+
+on:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v5
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm --prefix app ci
+
+      # the Tauri crate embeds the built UI (app/build), so it must exist before cargo builds it
+      - run: npm --prefix app run build
+
+      - run: npm --prefix app run check
+
+      - run: npm --prefix app test
+
+      # --no-fail-fast: one run shows every platform-specific failure, not just the first crate's
+      - run: cargo test --workspace --no-fail-fast

@@ -296,11 +296,13 @@ pub fn archive_real(source_path: &str, chain: &[String]) -> String {
 }
 
 /// Hover path of a loose file below a folder: `D:\x\Coll` + `sub/a.stl` → `D:\x\Coll\sub\a.stl`.
+/// A Unix source path (`/…`, macOS) keeps `/` separators: `/x/Coll/sub/a.stl`.
 pub fn folder_real(source_path: &str, rel: &str) -> String {
     if rel.is_empty() {
         return source_path.to_string();
     }
-    format!("{}\\{}", source_path.trim_end_matches('\\'), rel.replace('/', "\\"))
+    let sep = if source_path.starts_with('/') { '/' } else { '\\' };
+    format!("{}{sep}{}", source_path.trim_end_matches(sep), rel.replace('/', &sep.to_string()))
 }
 
 fn is_sep(c: char) -> bool {
@@ -476,6 +478,15 @@ mod tests {
         assert_eq!(folder_real("D:\\x\\Coll", "sub/a.stl"), "D:\\x\\Coll\\sub\\a.stl");
         assert_eq!(folder_real("D:\\", "a.stl"), "D:\\a.stl");
         assert_eq!(folder_real("D:\\x", ""), "D:\\x");
+        assert_eq!(folder_real("\\\\nas\\share", "a/b.stl"), "\\\\nas\\share\\a\\b.stl");
+    }
+
+    #[test]
+    fn folder_real_keeps_unix_separators() {
+        assert_eq!(folder_real("/Users/me/Coll", "sub/a.stl"), "/Users/me/Coll/sub/a.stl");
+        assert_eq!(folder_real("/Users/me/Coll/", "a.stl"), "/Users/me/Coll/a.stl");
+        assert_eq!(folder_real("/", "a.stl"), "/a.stl");
+        assert_eq!(folder_real("/Users/me", ""), "/Users/me");
     }
 
     #[test]

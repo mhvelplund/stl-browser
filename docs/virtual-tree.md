@@ -89,7 +89,9 @@ These are written by the resolver and rebuilt on every index, so user data never
 
 ## Naming rules (both views)
 
-- **All names are shown in lowercase.** The real paths keep their case for hovering and extraction.
+- **All names are shown in lowercase.** The real paths keep their case for hovering and extraction. They use the
+  disk's own separators (`folder_real`): `\` below a Windows path, `/` below a Unix path (macOS), then `!` and `/`
+  inside archives.
 - **Folders that overlap merge their contents.** This covers names differing only in case, and an added folder that sits
   inside another added folder:
   - Each source is indexed once, under the outermost root.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Windows desktop app (Rust + Tauri 2, Svelte 5 + TypeScript UI) for browsing 3D-print collections: STL/OBJ/LYS files and
+Desktop app for Windows and macOS (Rust + Tauri 2, Svelte 5 + TypeScript UI) for browsing 3D-print collections: STL/OBJ/LYS files and
 images, often inside RAR/ZIP/7Z archives nested in other archives. Folders are added to a SQLite index, rescanned
 incrementally, and browsed Explorer-style.
 
@@ -33,6 +33,8 @@ cargo run --release -p stl-index --bin stlx -- parity <other.db>       # compare
 npm --prefix app run tauri dev                           # launch the app
 npm --prefix app run build:exe                           # release exe only -> target/release/stl-browser-<version>.exe
 npm --prefix app run build:installer                     # NSIS installer -> target/release/bundle/nsis/
+# on macOS both build universal: binary stl-browser-<version>-macos and the DMG under target/universal-apple-darwin/release/
+# (needs: rustup target add aarch64-apple-darwin x86_64-apple-darwin)
 npm --prefix app run check                               # svelte-check (UI type check)
 npm --prefix app test                                    # UI logic tests (node --test on src/lib/*.test.ts)
 ```
@@ -90,7 +92,10 @@ bookkeeping for the regenerable `~/.stl-browser/thumbs/` cache; its rows cascade
 - **Commitizen owns the version.** Every push to `main` bumps it from the conventional commits, updates `CHANGELOG.md`
   and publishes a release (`.github/workflows/release.yml`, `.cz.toml`). Don't bump versions or edit `CHANGELOG.md` by
   hand, keep commit messages conventional, and don't pin a `version` on internal path dependencies.
-  `uvx --from commitizen cz bump --dry-run` shows the next bump.
+  `uvx --from commitizen cz bump --dry-run` shows the next bump. Releases build on Windows and macOS runners;
+  `.github/workflows/ci.yml` runs the tests on both for every pull request, so macOS-only breakage shows up there.
+- **Platform-specific code goes behind `cfg`**: `cfg(windows)` / `cfg(target_os = "macos")`, with a fallback for other
+  targets (see `export.rs` `mark_downloaded`, `start_drag`; `thumbs.rs` `thumb_url`). Drag-out is Windows-only for now.
 - **Commit types: only `feat!`, `feat`, `fix` and `chore`.** Anything that shouldn't change the version is a `chore`
   with a scope, e.g. `chore(docs): ...` for documentation, `chore(ci): ...` for the pipeline. No `docs:`, `ci:`,
   `refactor:`, `test:` etc.

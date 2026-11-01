@@ -606,7 +606,7 @@ pub fn scope(views: &Views, view: View, path: &[String]) -> Result<Option<Vec<Pa
         let k = p.to_lowercase();
         let covered = out.iter().any(|o| {
             let o = o.to_lowercase();
-            k == o || k.strip_prefix(&o).is_some_and(|r| r.starts_with('\\'))
+            k == o || k.strip_prefix(&o).is_some_and(|r| r.starts_with(['\\', '/']))
         });
         if !covered {
             out.push(p);
@@ -666,7 +666,7 @@ mod tests {
         let names: Vec<_> = l.items.iter().map(|i| i.name.as_str()).collect();
         assert_eq!(names, ["notes.txt", "orc.jpg", "orc.stl"]);
         let stl = item(&l, "orc.stl");
-        assert!(stl.real[0].ends_with("Coll\\Orc\\orc.stl"), "{:?}", stl.real);
+        assert!(std::path::Path::new(&stl.real[0]).ends_with("Coll/Orc/orc.stl"), "{:?}", stl.real);
         assert_eq!(stl.file_kind.as_deref(), Some("model"));
         assert!(!stl.openable);
         let coll = list_folder_impl(&state, View::Files, segs(&["vol", "coll"])).unwrap();

@@ -1,7 +1,9 @@
-// Release build of the exe alone, with this machine's paths remapped so the binary doesn't
+// Release build of the app alone, with this machine's paths remapped so the binary doesn't
 // embed them: Rust keeps source paths for panic locations, and dependency sources live under
-// the user's home (~/.cargo/registry/...). Then names the exe. With --installer, builds the
-// NSIS installer instead (target/release/bundle/nsis/), which Tauri names itself.
+// the user's home (~/.cargo/registry/...). Then names the binary. With --installer, builds the
+// installer instead, which Tauri names itself: NSIS on Windows (target/release/bundle/nsis/),
+// a DMG on macOS. macOS builds are universal (Apple Silicon + Intel), so they land in
+// target/universal-apple-darwin/release/ and need both Apple Rust targets installed.
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -18,7 +20,9 @@ const run = (cmd, args, env) => {
   if (r.status !== 0) process.exit(r.status ?? 1);
 };
 
+const mac = process.platform === "darwin";
 const installer = process.argv.includes("--installer");
-const bundle = installer ? ["--bundles", "nsis"] : ["--no-bundle"];
-run("npx", ["tauri", "build", ...bundle], { ...process.env, RUSTFLAGS: rustflags });
+const target = mac ? ["--target", "universal-apple-darwin"] : [];
+const bundle = installer ? ["--bundles", mac ? "dmg" : "nsis"] : ["--no-bundle"];
+run("npx", ["tauri", "build", ...target, ...bundle], { ...process.env, RUSTFLAGS: rustflags });
 if (!installer) run("node", [join(app, "scripts", "name-exe.js")], process.env);

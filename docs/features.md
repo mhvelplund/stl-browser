@@ -150,7 +150,8 @@ Both trees are built in memory from the DB (`views.rs` loads rows, `stl-core::vt
   It reads them in one archive pass (`extract_many_entries`) and renders. A panic in a batch is caught. Each job emits
   `thumb-ready { entryId, url | null, extras, pending }`; `extras` are the urls of a file's own carousel pictures (a
   3MF's), also in `request_thumbs` answers.
-- **The `thumb` protocol** serves `http://thumb.localhost/<rel>` on Windows. `rel` must pass `cache::is_valid_rel`
+- **The `thumb` protocol** serves `http://thumb.localhost/<rel>` on Windows and `thumb://localhost/<rel>` on macOS
+  (`thumbs.rs` `thumb_url`). `rel` must pass `cache::is_valid_rel`
   (16 lowercase hex, `/`, `[0-9a-f-]+` with an optional `.spin` or `.p<n>`, `.jpg`), otherwise the answer is 404, and
   so is a missing file. Responses are `image/jpeg` and cached as immutable, because names are content hashes.
 - The UI asks for what is on screen (high) and the rest of the folder (low), debounced 120 ms. Entry ids stay valid
@@ -234,9 +235,11 @@ Each `Item` carries `composite` (0–4 cells, empty = no composite slot), `pics`
 
 ## Opening files
 
-- A double-click on a file (or right-click → Open) opens it in its Windows app (`open_file`, `tauri_plugin_opener`).
-- A loose file opens in place. An archive member is written to `%TEMP%\stl-browser-open\<n>\` first (the folder is
-  emptied at app start), and gets a Mark-of-the-Web (`Zone.Identifier`, internet zone).
+- A double-click on a file (or right-click → Open) opens it in its default app (`open_file`, `tauri_plugin_opener`).
+- A loose file opens in place. An archive member is written to `stl-browser-open/<n>/` in the OS temp folder first
+  (`%TEMP%` on Windows, `$TMPDIR` on macOS; the folder is emptied at app start), and is marked as downloaded
+  (`mark_downloaded`): a Mark-of-the-Web on Windows (`Zone.Identifier`, internet zone), the `com.apple.quarantine`
+  xattr on macOS.
 - Only models, scenes, images and documents (not `.html`/`.htm`) are opened, never programs, scripts or shortcuts from
   an archive (`export.rs` `openable`).
 - Opening is refused during an index run. A second double-click while a file is still being extracted is ignored.

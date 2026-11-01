@@ -1,8 +1,8 @@
 # STL Browser: developer guide
 
-A Windows desktop app (Rust + Tauri 2, Svelte 5 + TypeScript UI) for browsing 3D-print collections: folders of
-STL/OBJ/LYS files and images, often inside RAR/ZIP/7Z archives nested inside other archives. You add folders to an
-index and browse them like Windows Explorer with very large icons, in two views:
+A desktop app for Windows and macOS (Rust + Tauri 2, Svelte 5 + TypeScript UI) for browsing 3D-print collections:
+folders of STL/OBJ/LYS files and images, often inside RAR/ZIP/7Z archives nested inside other archives. You add folders
+to an index and browse them like a file manager with very large icons, in two views:
 
 - *Models*: the resolver's cleaned-up tree (volume → collection → group → model → variant → parts).
 - *Files*: the real disk and archive layout, where archives open like folders.
@@ -142,5 +142,7 @@ Tag keys use real paths so a tag means the same thing in both views and survives
   the next version from the conventional commits, writes it to `Cargo.toml`, `Cargo.lock`, `tauri.conf.json`,
   `package.json` and `package-lock.json`, updates `CHANGELOG.md`, and commits and tags as the `commitizen-ci` GitHub App
   (`CZ_APP_CLIENT_ID` variable, `CZ_APP_PRIVATE_KEY` secret). A Windows runner builds the exe and the NSIS installer
-  and attaches them to the release. A version set by hand that has no tag yet is released as it is. Internal path
+  while a macOS runner builds the universal binary and DMG (ad-hoc signed, not notarized). Once both have built, one
+  job attaches all four files to the release, so a failed build publishes nothing. Pull requests run
+  `.github/workflows/ci.yml`: the Rust and UI tests on both Windows and macOS. A version set by hand that has no tag yet is released as it is. Internal path
   dependencies don't pin a `version`, so a bump doesn't break them.
