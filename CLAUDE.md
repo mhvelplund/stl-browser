@@ -58,12 +58,15 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
   `preview.rs` (the pictures embedded in 3MF and LYS files; a 3MF's carousel), `raster.rs` (CPU z-buffer renderer and the 12-frame
   turntable strip shown on hover), `generate.rs` (one archive pass per batch), `queue.rs` (two-level priority queue
   with replace semantics). Render one file by hand: `cargo run --release -p stl-thumb --example thumb -- [--spin|--all] <in> <out.jpg>`.
-- `crates/stl-drag`: Windows-only OLE drag-out.
-  - `data.rs` is the `IDataObject`: file descriptors, file contents written on request, async copy.
-  - `stream.rs` is an `IStream` over a delete-on-close temp file, and `source.rs` is the drop source.
-  - `prepare` creates the object in the MTA. `run_drag` runs `DoDragDrop` on the STA with a marshaled proxy, so
-    Explorer's calls never block the UI thread.
-  - `tests/drop.rs` drops on the shell's own drop target for a temp folder, so no mouse is needed.
+- `crates/stl-drag`: drag-out of files written on request. `Descriptor.rel` is always `/`-separated.
+  - `promise.rs` (all OSes, unit-tested): groups the drag into top-level items and writes one into a folder (`.part`
+    then rename, never overwriting); backs the macOS drag.
+  - `windows/`: OLE. `data.rs` is the `IDataObject` (file descriptors, contents written on request, async copy),
+    `stream.rs` an `IStream` over a delete-on-close temp file, `source.rs` the drop source. `prepare` creates the
+    object in the MTA; `run_drag` runs `DoDragDrop` on the STA with a marshaled proxy, so Explorer's calls never block
+    the UI thread. `tests/drop.rs` drops on the shell's own drop target for a temp folder, so no mouse is needed.
+  - `macos.rs`: one `NSFilePromiseProvider` per top-level item; Finder calls the delegate on a background
+    `NSOperationQueue`. Needs a real Mac and mouse to test.
 - `crates/stl-index`: `~/.stl-browser/index.db` (SQLite, WAL). `config.rs` reads `~/.stl-browser/config.yaml`
   (`shown_extensions`, once at startup); `db.rs` holds schema + migrations; `scanstore.rs` holds
   `add_root` / `scan_root` (incremental rescan by size, mtime and folder file-name fingerprint; errored sources retried;
@@ -95,7 +98,7 @@ bookkeeping for the regenerable `~/.stl-browser/thumbs/` cache; its rows cascade
   `uvx --from commitizen cz bump --dry-run` shows the next bump. Releases build on Windows and macOS runners;
   `.github/workflows/ci.yml` runs the tests on both for every pull request, so macOS-only breakage shows up there.
 - **Platform-specific code goes behind `cfg`**: `cfg(windows)` / `cfg(target_os = "macos")`, with a fallback for other
-  targets (see `export.rs` `mark_downloaded`, `start_drag`; `thumbs.rs` `thumb_url`). Drag-out is Windows-only for now.
+  targets (see `export.rs` `mark_downloaded`, `start_drag`; `thumbs.rs` `thumb_url`).
 - **Commit types: only `feat!`, `feat`, `fix` and `chore`.** Anything that shouldn't change the version is a `chore`
   with a scope, e.g. `chore(docs): ...` for documentation, `chore(ci): ...` for the pipeline. No `docs:`, `ci:`,
   `refactor:`, `test:` etc.

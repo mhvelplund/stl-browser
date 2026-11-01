@@ -205,12 +205,18 @@ Each `Item` carries `composite` (0–4 cells, empty = no composite slot), `pics`
   level in one pass, and a drag reads the level on the first request into it, keeping the other files in delete-on-close
   temp files (up to 2 GiB). Zip members and loose files are read directly. A panic in a reader fails only that file.
 
-### The drag (`stl-drag`, Windows only)
+### The drag (`stl-drag`)
 
 - **Gesture:** pressing a tile and moving 6 px (`dragstart.ts` `THRESHOLD`) with the primary button held calls
   `begin_drag` with the selection, or with just that tile when it isn't selected. If the button is already up when
-  `DoDragDrop` would start, no drag starts (`primary_button_down` honours swapped buttons).
-- **The data object** offers `CFSTR_FILEDESCRIPTORW` (one descriptor per folder and file, `\`-separated relative paths,
+  the drag would start, no drag starts.
+- **Descriptors** are one per folder and file of the export plan, with `/`-separated relative paths, served by the same
+  `DragContents` (`FileServer` with the read-ahead) on both platforms.
+
+#### Windows (OLE)
+
+- If the button is up when `DoDragDrop` would start, no drag starts (`primary_button_down` honours swapped buttons).
+- **The data object** offers `CFSTR_FILEDESCRIPTORW` (one descriptor per folder and file, converted to `\` separators,
   `FD_ATTRIBUTES | FD_PROGRESSUI`, plus `FD_FILESIZE` when known), `CFSTR_FILECONTENTS` (one `IStream` per file,
   extracted only when Explorer asks) and `CFSTR_PREFERREDDROPEFFECT` = copy. It implements `IDataObjectAsyncCapability`,
   so Explorer copies on its own thread with its own progress dialog.
@@ -223,6 +229,21 @@ Each `Item` carries `composite` (0–4 cells, empty = no composite slot), `pics`
 - **Paths over 259 characters** don't fit in a descriptor. They are left out of a drag, and the UI says how many.
   Extract to… still writes them.
 - `tests/drop.rs` drops on the shell's own drop target for a temp folder, so no mouse is needed.
+
+#### macOS (file promises)
+
+- **One `NSFilePromiseProvider` per top-level item** (a dragged file or folder), with a generic icon for its type as
+  the drag image. `run_drag` runs on the main thread from the window's content view with a synthesized mouse-dragged
+  event; the drag goes on after it returns. Only copy is offered.
+- **Finder asks for each item after the drop**, and the delegate writes it on its own serial `NSOperationQueue`, so
+  the extraction never blocks the UI. The writing is `promise::Promises` (platform-neutral, unit-tested on both OSes):
+  - Each file goes to `<name>.part` and is renamed when complete; on failure nothing is left.
+  - Nothing is overwritten: a name already in the drop folder becomes `name 2`, `name 2.stl`… as Finder does.
+  - A folder writes all its files; a failed file doesn't stop the rest, and Finder shows "N of M files could not be
+    written" with the first error.
+  - A file longer than its indexed size fails. There is no path length limit.
+- **The read-ahead is released** when the drag is cancelled, after the last item is written, or when the next drag
+  starts.
 
 ### Extract to…
 

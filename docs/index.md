@@ -8,7 +8,7 @@ to an index and browse them like a file manager with very large icons, in two vi
 - *Files*: the real disk and archive layout, where archives open like folders.
 
 Each folder shows a carousel of the pictures inside it. Items can be tagged and searched, and anything can be dragged
-out to Explorer to extract it.
+out to Explorer or Finder to extract it.
 
 ## Where to read what
 
@@ -40,7 +40,9 @@ crates/stl-scan/    archive access: archive.rs (ZIP/7Z/RAR behind one `Archive` 
                     session.rs (ExtractSession), discover.rs
 crates/stl-thumb/   cache.rs, image.rs, mesh.rs (STL/OBJ), preview.rs (3MF/LYS pictures), raster.rs (CPU renderer and
                     turntable strip), generate.rs, queue.rs
-crates/stl-drag/    Windows only: data.rs (IDataObject), stream.rs, source.rs; `prepare` (MTA), `run_drag` (STA)
+crates/stl-drag/    lib.rs (Descriptor, Contents), promise.rs (top-level items, writing one into a folder; all OSes);
+                    windows/ (data.rs IDataObject, stream.rs, source.rs; `prepare` MTA, `run_drag` STA);
+                    macos.rs (NSFilePromiseProvider per top-level item, delegate on a background queue)
 crates/stl-index/   paths, db.rs (schema + migrations), config.rs, scanstore.rs, resolvestore.rs, views.rs,
                     thumbstore.rs, tagstore.rs, export.rs, parity.rs; bin/stlx.rs (dev CLI)
 app/src-tauri/      Tauri shell: lib.rs (setup, `thumb` protocol), state.rs (DB, cached views, busy flags, thumbnail

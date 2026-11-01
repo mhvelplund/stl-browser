@@ -79,8 +79,9 @@ when a review defers them.
 
 ## Drag-out, Extract to… and opening files
 
-- **No drag-out on macOS yet.** Dragging a tile on a Mac shows "use Extract to…". A native Finder drag (file
-  promises) is planned.
+- **macOS drags show no progress:** Finder shows no per-file progress for file promises, and the drag image is a
+  generic icon per item.
+- **A macOS drop target that never asks for the files** keeps the drag's read-ahead until the next drag.
 - **Extract to… may act on the wrong folder.** It reads the current folder after the picker returns, and Backspace with
   the context menu open also navigates.
 - **The status line lists every failed file**, so a source deleted since indexing can fill it with thousands of
