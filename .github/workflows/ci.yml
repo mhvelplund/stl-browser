@@ -56,6 +56,9 @@ jobs:
           cp "${out}/bundle/dmg/STL Browser_${VERSION}_universal.dmg" "dist/stl-browser_${VERSION}_universal.dmg"
           cp "${out}/stl-browser-${VERSION}-macos" dist/
           file dist/*
+          lipo -info "dist/stl-browser-${VERSION}-macos"
+          codesign -dv --verbose=2 "dist/stl-browser-${VERSION}-macos"
+          codesign -dv --verbose=2 "${out}/bundle/macos/STL Browser.app"
       - uses: actions/upload-artifact@v7
         with:
           name: macos

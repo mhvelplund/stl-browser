@@ -54,9 +54,11 @@ You only have to allow the app once.
 **The DMG (recommended):**
 
 1. Open the DMG and drag **STL Browser** to **Applications**.
-2. Start STL Browser from Applications. macOS says it can't verify the developer; click **Done** (or **Cancel**).
-3. Open **System Settings → Privacy & Security**, scroll down to the message about STL Browser, and click
-   **Open Anyway**. Confirm with your password, then click **Open**.
+2. Start STL Browser from Applications. macOS says it could not verify that STL Browser is free of malware (on older
+   versions: that it can't verify the developer). Click **Done** (or **Cancel**), not Move to Trash.
+3. Within about an hour, open **System Settings → Privacy & Security**, scroll down to the message about STL Browser,
+   and click **Open Anyway**. In the dialog that follows, click **Open Anyway** again and enter your password. If the
+   button is gone, start the app once more and come back.
 
 On macOS 14 (Sonoma) and earlier you can instead Control-click the app in Finder, choose **Open**, and click **Open**
 again. macOS 15 and later removed that shortcut, so use Privacy & Security there.
@@ -76,7 +78,8 @@ xattr -d com.apple.quarantine stl-browser-<version>-macos
 ./stl-browser-<version>-macos
 ```
 
-It runs without an app bundle, so it has no proper Dock icon or name. Use the DMG unless you want a single file.
+If `xattr` says "No such xattr", the file wasn't quarantined and that's fine. It runs without an app bundle, so it has
+no proper Dock icon or name. Use the DMG unless you want a single file.
 
 ## Prerequisites
 
