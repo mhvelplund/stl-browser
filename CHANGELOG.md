@@ -1,3 +1,10 @@
+## v1.2.0 (2026-11-01)
+
+### Feat
+
+- a 3MF tile is a carousel of its plate renders and photos
+- 3MF and LYS thumbnails, and mesh tiles that turn on hover
+
 ## v1.1.0 (2026-10-31)
 
 ### Feat
