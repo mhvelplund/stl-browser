@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.3.0"
+version.workspace = true
 description = "STL Browser"
 authors = ["Mads Hvelplund"]
 edition = "2024"
