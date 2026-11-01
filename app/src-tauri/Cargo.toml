@@ -34,6 +34,9 @@ tauri-plugin-dialog = "2"
 [target.'cfg(windows)'.dependencies]
 stl-drag = { path = "../../crates/stl-drag" }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 zip = "9.1.2"

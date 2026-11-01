@@ -172,7 +172,7 @@ pub fn open_dir() -> PathBuf {
     std::env::temp_dir().join("stl-browser-open")
 }
 
-/// Files a double-click may hand to Windows: archives are untrusted, so never programs,
+/// Files a double-click may hand to the OS: archives are untrusted, so never programs,
 /// scripts, shortcuts or web pages.
 fn openable(name: &str) -> bool {
     use stl_core::names::{Kind, ext, kind_of};
@@ -183,13 +183,29 @@ fn openable(name: &str) -> bool {
     }
 }
 
-/// Mark a file written from an archive as downloaded (Mark-of-the-Web), so Windows treats it
-/// with the same care as the archive it came from. Best effort: not every disk has streams.
+/// Mark a file written from an archive as downloaded, so the OS treats it with the same care as
+/// the archive it came from: Mark-of-the-Web on Windows, the quarantine xattr on macOS. Best
+/// effort: not every disk has streams or extended attributes.
+#[cfg(windows)]
 fn mark_downloaded(path: &Path) {
     let mut ads = path.as_os_str().to_owned();
     ads.push(":Zone.Identifier");
     let _ = std::fs::write(ads, "[ZoneTransfer]\r\nZoneId=3\r\n");
 }
+
+#[cfg(target_os = "macos")]
+fn mark_downloaded(path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(p) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return };
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let value = format!("0081;{secs:x};STL Browser;");
+    unsafe {
+        libc::setxattr(p.as_ptr(), c"com.apple.quarantine".as_ptr(), value.as_ptr().cast(), value.len(), 0, 0);
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn mark_downloaded(_: &Path) {}
 
 /// A path to open the file `name` (in the folder at `path` of `view`) from: a loose file's own
 /// path, or a copy of an archive member written to a new folder below `tmp`.
@@ -220,7 +236,7 @@ pub fn stage_for_open(state: &AppState, view: View, path: &[String], name: &str,
     Ok(out)
 }
 
-/// Open the file `name` (in the folder at `path` of `view`) in its Windows app; a file in an
+/// Open the file `name` (in the folder at `path` of `view`) in its default app; a file in an
 /// archive is extracted to a temp folder first.
 #[tauri::command(async)]
 pub fn open_file(state: tauri::State<'_, AppState>, view: View, path: Vec<String>, name: String) -> Result<(), String> {
@@ -355,7 +371,28 @@ mod tests {
         assert_eq!(std::fs::read(&p).unwrap(), b"kk");
         let mut ads = p.as_os_str().to_owned();
         ads.push(":Zone.Identifier");
-        assert!(std::fs::read_to_string(ads).unwrap().contains("ZoneId=3"));
+        #[cfg(windows)]
+        assert!(std::fs::read_to_string(&ads).unwrap().contains("ZoneId=3"));
+        #[cfg(not(windows))]
+        assert!(!Path::new(&ads).exists(), "no stray Zone.Identifier file");
+        #[cfg(target_os = "macos")]
+        {
+            let q = quarantine_of(&p).expect("quarantine xattr");
+            assert!(q.starts_with("0081;"), "{q}");
+            assert!(q.ends_with(";STL Browser;"), "{q}");
+        }
+    }
+
+    /// The `com.apple.quarantine` xattr of `p`, if it has one.
+    #[cfg(target_os = "macos")]
+    fn quarantine_of(p: &Path) -> Option<String> {
+        use std::os::unix::ffi::OsStrExt;
+        let path = std::ffi::CString::new(p.as_os_str().as_bytes()).ok()?;
+        let mut buf = [0u8; 256];
+        let n = unsafe {
+            libc::getxattr(path.as_ptr(), c"com.apple.quarantine".as_ptr(), buf.as_mut_ptr().cast(), buf.len(), 0, 0)
+        };
+        (n >= 0).then(|| String::from_utf8_lossy(&buf[..n as usize]).into_owned())
     }
 
     #[test]
