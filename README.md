@@ -5,10 +5,9 @@
 A desktop app for Windows and macOS for browsing 3D-print collections: folders of STL, OBJ and LYS files and their
 pictures, often packed in RAR, ZIP or 7Z archives that are nested inside other archives. You add folders to an index
 and browse them like a file manager with very large icons. Each folder shows a carousel of the pictures inside it, and
-you can drag anything out to Explorer to extract it, or use **Extract to…**.
+you can drag anything out to Explorer or Finder to extract it, or use **Extract to…**.
 
-Built with Rust and Tauri 2, with a Svelte 5 + TypeScript UI. **Windows and macOS.** Dragging files out works on
-Windows only for now; on a Mac, use **Extract to…**.
+Built with Rust and Tauri 2, with a Svelte 5 + TypeScript UI. **Windows and macOS.**
 
 ![STL Browser](docs/img/screenshot.jpg)
 
@@ -21,7 +20,7 @@ Windows only for now; on a Mac, use **Extract to…**.
 - **Two views:** *Models* groups files into detected models with their images. *Files* shows the physical layout, with
   archives opened like folders.
 - **Thumbnails:** images are scaled, and STL/OBJ meshes are rendered on the CPU. Folders get a picture carousel.
-- **Drag-out and "Extract to…":** drag a model, file or folder straight out of an archive into Explorer (Windows), or
+- **Drag-out and "Extract to…":** drag a model, file or folder straight out of an archive into Explorer or Finder, or
   extract it to a folder of your choice.
 - **Search and tags:** search names below the open folder (Free, Word or Regexp), tag items yourself or use the
   generated support, scale, creator and edition tags, and search with `tag:` terms.
@@ -149,7 +148,7 @@ Start menu. On a Mac, start **STL Browser** from Applications.
 1. Click **Add folder** and pick a folder with your collection, e.g. `D:\Models`.
 2. Indexing runs in the background. The first index of a large collection can take a few minutes, mostly spent listing
    archives. Later rescans only look at what changed.
-3. Browse in the *Models* or *Files* view. Drag items out to Explorer (Windows), or use **Extract to…**.
+3. Browse in the *Models* or *Files* view. Drag items out to Explorer or Finder, or use **Extract to…**.
 
 The app keeps its data in `%USERPROFILE%\.stl-browser\` on Windows and `~/.stl-browser/` on macOS:
 
@@ -177,7 +176,7 @@ cargo run --release -p stl-index --bin stlx -- add <dir>   # dev CLI: add, index
 | `crates/stl-core`  | Pure logic: file-name heuristics, the model resolver, the virtual tree views |
 | `crates/stl-scan`  | Archive access (ZIP/7Z/RAR), nested listing, extraction, folder discovery    |
 | `crates/stl-thumb` | Thumbnail generation: image scaling, STL/OBJ rendering, priority queue       |
-| `crates/stl-drag`  | Windows OLE drag-out of virtual files (empty on macOS)                       |
+| `crates/stl-drag`  | Drag-out of virtual files: Windows OLE, macOS file promises                  |
 | `crates/stl-index` | The SQLite index: schema, incremental scans, views, export; `stlx` CLI       |
 | `app/src-tauri`    | The Tauri shell and its commands                                             |
 | `app/src`          | The SvelteKit UI                                                             |

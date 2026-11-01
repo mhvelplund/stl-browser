@@ -38,10 +38,10 @@ fn drop_on_shell_folder() {
     let contents = Arc::new(Bodies { bodies: vec![b"", b"solid a", b"", b"jpeg b", big], threads: Mutex::new(Vec::new()) });
     let items = vec![
         d("m", true, None),
-        d("m\\a.stl", false, Some(7)),
-        d("m\\sub", true, None),
-        d("m\\sub\\b.jpg", false, Some(6)),
-        d("m\\big.stl", false, Some(3 * 1024 * 1024)),
+        d("m/a.stl", false, Some(7)),
+        d("m/sub", true, None),
+        d("m/sub/b.jpg", false, Some(6)),
+        d("m/big.stl", false, Some(3 * 1024 * 1024)),
     ];
     let prepared = prepare(items, contents.clone()).unwrap();
     assert_eq!(prepared.too_long, 0);

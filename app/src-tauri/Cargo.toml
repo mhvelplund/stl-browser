@@ -31,7 +31,7 @@ stl-thumb = { path = "../../crates/stl-thumb" }
 rusqlite = "0.37"
 tauri-plugin-dialog = "2"
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 stl-drag = { path = "../../crates/stl-drag" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
