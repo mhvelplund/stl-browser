@@ -1,7 +1,7 @@
 //! The platform-neutral half of a promise drag (macOS): the drag's descriptors grouped into
 //! top-level items, and writing one item into the folder the drop target names.
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -71,6 +71,8 @@ pub struct Promises {
     contents: Mutex<Option<Arc<dyn Contents>>>,
     done: Vec<AtomicBool>,
     remaining: AtomicUsize,
+    /// A write has begun (set under the `contents` lock).
+    started: AtomicBool,
 }
 
 impl Promises {
@@ -83,6 +85,7 @@ impl Promises {
             contents: Mutex::new(Some(contents)),
             done: (0..n).map(|_| AtomicBool::new(false)).collect(),
             remaining: AtomicUsize::new(n),
+            started: AtomicBool::new(false),
         }
     }
 
@@ -95,10 +98,31 @@ impl Promises {
         self.contents.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 
+    /// Release the contents if no write has begun (a drop target that never asked for the
+    /// files); a drag that is being written releases itself after its last item.
+    pub fn release_if_idle(&self) -> bool {
+        let mut c = self.contents.lock().unwrap_or_else(|e| e.into_inner());
+        if self.started.load(Ordering::SeqCst) {
+            return false;
+        }
+        c.take();
+        true
+    }
+
+    /// The contents are gone: every item was written, or the drag was released.
+    pub fn finished(&self) -> bool {
+        self.contents.lock().unwrap_or_else(|e| e.into_inner()).is_none()
+    }
+
     /// Write item `item` to `dest` (or the free name next to it, `free_dest`); returns the path
     /// written. A folder's files are all tried; the error names how many failed and the first.
     pub fn write(&self, item: usize, dest: &Path) -> Result<PathBuf, String> {
-        let contents = self.contents.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("the drag is over")?;
+        let contents = {
+            let c = self.contents.lock().unwrap_or_else(|e| e.into_inner());
+            let contents = c.clone().ok_or("the drag is over")?;
+            self.started.store(true, Ordering::SeqCst);
+            contents
+        };
         let t = self.items.get(item).ok_or("no such item")?;
         let r = self.write_item(&*contents, t, dest);
         drop(contents);
@@ -109,13 +133,19 @@ impl Promises {
     }
 
     fn write_item(&self, contents: &dyn Contents, t: &TopItem, dest: &Path) -> Result<PathBuf, String> {
-        let out = free_dest(dest);
         if !t.is_dir {
             let i = t.index.ok_or("no such item")?;
-            write_file(contents, i, self.descs[i].size, &out)?;
-            return Ok(out);
+            return write_file(contents, i, self.descs[i].size, dest, true);
         }
-        std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+        // create_dir fails on a name taken since free_dest looked (another drop into the same folder)
+        let out = loop {
+            let out = free_dest(dest);
+            match std::fs::create_dir(&out) {
+                Ok(()) => break out,
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(format!("{}: {e}", out.display())),
+            }
+        };
         let (mut files, mut failed, mut first) = (0, 0, None);
         for &m in &t.members {
             let d = &self.descs[m];
@@ -126,7 +156,7 @@ impl Promises {
             } else {
                 files += 1;
                 let parent = path.parent().map(|p| std::fs::create_dir_all(p).map_err(|e| e.to_string()));
-                parent.unwrap_or(Ok(())).and_then(|()| write_file(contents, m, d.size, &path))
+                parent.unwrap_or(Ok(())).and_then(|()| write_file(contents, m, d.size, &path, false).map(|_| ()))
             };
             if let Err(e) = r {
                 failed += 1;
@@ -140,33 +170,36 @@ impl Promises {
     }
 }
 
-/// Write file `index` to `<path>.part`, then rename it to `path`; nothing is left on failure.
-fn write_file(contents: &dyn Contents, index: usize, size: Option<u64>, path: &Path) -> Result<(), String> {
-    let mut part = path.as_os_str().to_owned();
-    part.push(".part");
-    let part = PathBuf::from(part);
-    let r = (|| {
-        let f = File::create(&part).map_err(|e| e.to_string())?;
-        let mut w = Limited { out: BufWriter::new(f), written: 0, size };
-        contents.write(index, &mut w)?;
-        w.out.flush().map_err(|e| e.to_string())?;
-        drop(w);
-        std::fs::rename(&part, path).map_err(|e| e.to_string())
-    })();
-    if r.is_err() {
-        let _ = std::fs::remove_file(&part);
+/// Write file `index` to a uniquely named `.part` file next to `path`, then move it to `path`
+/// without ever replacing a file there. With `next_free`, a taken `path` moves on to the next
+/// free name (`free_dest`); otherwise it fails. Returns where the file went; nothing is left on
+/// failure (the temp file deletes itself).
+fn write_file(contents: &dyn Contents, index: usize, size: Option<u64>, path: &Path, next_free: bool) -> Result<PathBuf, String> {
+    let dir = path.parent().ok_or("no folder to write to")?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut tmp = tempfile::Builder::new().prefix(&format!(".{name}.")).suffix(".part").tempfile_in(dir).map_err(|e| e.to_string())?;
+    let mut w = Limited { out: BufWriter::new(tmp.as_file_mut()), written: 0, size };
+    contents.write(index, &mut w)?;
+    w.out.flush().map_err(|e| e.to_string())?;
+    drop(w);
+    loop {
+        let target = if next_free { free_dest(path) } else { path.to_path_buf() };
+        match tmp.persist_noclobber(&target) {
+            Ok(_) => return Ok(target),
+            Err(e) if next_free && e.error.kind() == ErrorKind::AlreadyExists => tmp = e.file,
+            Err(e) => return Err(format!("{}: {}", target.display(), e.error)),
+        }
     }
-    r
 }
 
 /// Fails a write that goes past the size in the index (a stale index) instead of truncating.
-struct Limited {
-    out: BufWriter<File>,
+struct Limited<'a> {
+    out: BufWriter<&'a mut File>,
     written: u64,
     size: Option<u64>,
 }
 
-impl Write for Limited {
+impl Write for Limited<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if let Some(size) = self.size.filter(|&s| self.written + buf.len() as u64 > s) {
             return Err(std::io::Error::other(format!("the file has more bytes than the {size} in the index")));
@@ -298,6 +331,35 @@ mod tests {
         assert!(p.write(0, &tmp.path().join("x.stl")).is_err());
         assert!(!tmp.path().join("x.stl").exists());
         assert!(!tmp.path().join("x.stl.part").exists());
+    }
+
+    #[test]
+    fn write_file_never_replaces_an_existing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("x.stl");
+        std::fs::write(&path, b"old").unwrap();
+        let c = Bodies(vec![b"new".to_vec()]);
+        assert!(write_file(&c, 0, Some(3), &path, false).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"old");
+        assert!(parts_under(tmp.path()).is_empty());
+        // allowed to move on, it takes the next free name
+        assert_eq!(write_file(&c, 0, Some(3), &path, true).unwrap(), tmp.path().join("x 2.stl"));
+    }
+
+    #[test]
+    fn next_drag_keeps_a_drag_that_started_writing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = promises(&[("a.stl", false, b"a"), ("b.stl", false, b"b")]);
+        p.write(0, &tmp.path().join("a.stl")).unwrap();
+        assert!(!p.release_if_idle());
+        assert!(!p.finished());
+        p.write(1, &tmp.path().join("b.stl")).unwrap();
+        assert!(p.finished());
+
+        let idle = promises(&[("c.stl", false, b"c")]);
+        assert!(idle.release_if_idle());
+        assert!(idle.finished());
+        assert_eq!(idle.write(0, &tmp.path().join("c.stl")).unwrap_err(), "the drag is over");
     }
 
     /// Holds a token whose strong count shows whether the contents are still alive.

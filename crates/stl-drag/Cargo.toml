@@ -3,8 +3,10 @@ name = "stl-drag"
 version.workspace = true
 edition.workspace = true
 
-[target.'cfg(windows)'.dependencies]
+[dependencies]
 tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
 windows-core = "0.62.2"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
@@ -28,9 +30,6 @@ objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
 block2 = "0.6"
-
-[dev-dependencies]
-tempfile = "3"
 
 [target.'cfg(windows)'.dev-dependencies]
 windows-core = "0.62.2"

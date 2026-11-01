@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use block2::DynBlock;
 use objc2::rc::Retained;
@@ -34,13 +34,13 @@ pub fn prepare(items: Vec<Descriptor>, contents: Arc<dyn Contents>) -> Result<Pr
     Ok(Prepared { promises: Arc::new(Promises::new(items, contents)), too_long: 0 })
 }
 
-/// The previous drag's promises, released when the next drag starts (a drop target that never
-/// asked for its files would otherwise keep the read-ahead cache).
-static LAST: Mutex<Option<Arc<Promises>>> = Mutex::new(None);
-
 thread_local! {
-    /// The running drag's source (which holds the delegate): AppKit keeps the delegate weakly.
-    static CURRENT: RefCell<Option<Retained<Source>>> = const { RefCell::new(None) };
+    /// The sources (each holding its delegate, which AppKit keeps only weakly) of every drag
+    /// that may still be asked for files. When a drag starts, earlier drags that never began
+    /// writing are released (a drop target that never asked for its files would otherwise keep
+    /// the read-ahead cache), and finished ones are dropped. A drag being written stays alive
+    /// until its last item is done.
+    static DRAGS: RefCell<Vec<Retained<Source>>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Start the drag from `ns_view` (the window's content view); call on the main thread. Returns
@@ -56,9 +56,13 @@ pub fn run_drag(p: Prepared, ns_view: *mut c_void) -> Result<DragOutcome, String
     // SAFETY: Tauri's `ns_view` is the window's live content view, used on the main thread.
     let view: &NSView = unsafe { &*(ns_view as *const NSView) };
     let window = view.window().ok_or("the view has no window")?;
-    if let Some(old) = LAST.lock().unwrap_or_else(|e| e.into_inner()).replace(p.promises.clone()) {
-        old.release();
-    }
+    DRAGS.with(|d| {
+        d.borrow_mut().retain(|s| {
+            let p = &s.ivars().promises;
+            p.release_if_idle();
+            !p.finished()
+        })
+    });
 
     let at = window.mouseLocationOutsideOfEventStream();
     let event = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
@@ -112,7 +116,7 @@ pub fn run_drag(p: Prepared, ns_view: *mut c_void) -> Result<DragOutcome, String
 
     let source = Source::new(p.promises, delegate, mtm);
     view.beginDraggingSessionWithItems_event_source(&items, &event, ProtocolObject::from_ref(&*source));
-    CURRENT.with(|c| c.replace(Some(source)));
+    DRAGS.with(|d| d.borrow_mut().push(source));
     Ok(DragOutcome::Started)
 }
 

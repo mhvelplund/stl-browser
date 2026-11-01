@@ -237,13 +237,16 @@ Each `Item` carries `composite` (0–4 cells, empty = no composite slot), `pics`
   event; the drag goes on after it returns. Only copy is offered.
 - **Finder asks for each item after the drop**, and the delegate writes it on its own serial `NSOperationQueue`, so
   the extraction never blocks the UI. The writing is `promise::Promises` (platform-neutral, unit-tested on both OSes):
-  - Each file goes to `<name>.part` and is renamed when complete; on failure nothing is left.
-  - Nothing is overwritten: a name already in the drop folder becomes `name 2`, `name 2.stl`… as Finder does.
+  - Each file goes to a uniquely named `.<name>.….part` and is moved into place when complete; on failure nothing is
+    left.
+  - Nothing is overwritten: a name already in the drop folder becomes `name 2`, `name 2.stl`… as Finder does. The
+    final move never replaces a file, so two drops into one folder at once can't clobber each other.
   - A folder writes all its files; a failed file doesn't stop the rest, and Finder shows "N of M files could not be
     written" with the first error.
   - A file longer than its indexed size fails. There is no path length limit.
-- **The read-ahead is released** when the drag is cancelled, after the last item is written, or when the next drag
-  starts.
+- **The read-ahead is released** when the drag is cancelled, after the last item is written, or, if Finder never
+  asked for any of its files, when the next drag starts. A drag that is still being written is kept alive (its source
+  and delegate) until its last item is done, even while later drags run.
 
 ### Extract to…
 
