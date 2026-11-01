@@ -82,6 +82,8 @@ when a review defers them.
 - **macOS drags show no progress:** Finder shows no per-file progress for file promises, and the drag image is a
   generic icon per item.
 - **A macOS drop target that never asks for the files** keeps the drag's read-ahead until the next drag.
+- **Finder isn't told about a `name 2` copy.** A name taken between Finder's request and the write is saved as the next
+  free name, but file promises have no way to report it, so Finder may select the old file.
 - **Extract to… may act on the wrong folder.** It reads the current folder after the picker returns, and Backspace with
   the context menu open also navigates.
 - **The status line lists every failed file**, so a source deleted since indexing can fill it with thousands of
