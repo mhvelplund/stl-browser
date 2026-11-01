@@ -1,8 +1,8 @@
 # The virtual folder tree
 
 This page describes how the index is shown as folders in the two views. **Models** is the resolver's tree, and **Files**
-is the real disk and archive layout. It is the spec for the virtual tree in milestone 3. Both views follow the naming
-rules at the end.
+is the real disk and archive layout. The builders are `crates/stl-core/src/vtree/{models,files}.rs`, fed with rows by
+`crates/stl-index/src/views.rs`. Both views follow the naming rules at the end.
 
 ## Resolved tables
 
@@ -13,7 +13,7 @@ These are written by the resolver and rebuilt on every index, so user data never
 | `sources`     | The physical archives and folders on disk. Only needed to extract files, not to build the tree.                                        |
 | `entries`     | Every file found, with `chain`, the steps needed to extract it from nested archives. These are the leaf payloads.                      |
 | `groups`      | **Folders.** A tree via `parent_id`, per `collection`, at most 5 levels deep.                                                          |
-| `models`      | **Model folders**, the main items in the browser. Every model has a `group_id`, so none sit outside the tree.                          |
+| `models`      | **Model folders**, the main items in the browser. A model with no `group_id` (a collection that is one model) sits in its collection.  |
 | `model_files` | **Files inside a model**, each with `kind`, `variant` and `part_group`, linked to `entries`.                                           |
 | `assets`      | **Images and docs.** Rows with `model_id` belong to a model. Rows with a null `model_id` are group or collection posters (`group_id`). |
 
@@ -36,7 +36,7 @@ These are written by the resolver and rebuilt on every index, so user data never
   - `match`: how the image was attached.
   - `rank`: 0 is the hero.
 
-### Prototype numbers for scale
+### Numbers for scale (the two real volumes)
 
 - 124 groups: 11 roots, then 61 / 26 / 25 / 1 per level. 120 groups hold models directly, and 28 hold both subgroups and
   models.
@@ -47,7 +47,7 @@ These are written by the resolver and rebuilt on every index, so user data never
 - Group sizes vary a lot: Terrain is one flat group of 152 models.
 - Model sizes vary too: 254 models have 1–5 files, 442 have 6–20, 366 have 21–100 and 70 have more than 100. The
   largest, Rustopia, has 2,916 files.
-- The whole tree, files included, built in about 0.4 s in Python.
+- Both views build in under 0.5 s; inner-root volumes share nodes, so the tree is a DAG (walk it iteratively).
 
 ## Models view
 
@@ -70,8 +70,12 @@ These are written by the resolver and rebuilt on every index, so user data never
 - **Two different models with the same display name are not merged.** They get their edition in brackets, or else their
   `raw_name`: `archivist zarvos (5e)`, `archivist zarvos (8e)`. Anything still clashing gets a numbered postfix as
   below.
-- **Stable keys.** Row ids change on every re-index, so user data (selected thumbnail, tags) is keyed by
-  `m:<collection>/<path>`.
+- **`images` appears only if the model has a picture.**
+- **Password-protected archives** are padlock items directly in their collection folder.
+- **Node keys.** Row ids change on every re-index, so nodes are keyed by stable strings: collections, groups and models
+  use `m:<collection>/<path>`; variants `<model key>#<variant>`; parts `<parent key>/<part>`; `images`/`docs`
+  `<model key>#images` / `#docs`; leaves use the `f:` key of their file. Selected thumbnails use these keys; tags use
+  real-path keys (below).
 
 ## Files view
 
@@ -79,7 +83,9 @@ These are written by the resolver and rebuilt on every index, so user data never
   (`x.zip/` becomes `x`), with a small format badge. Nested archives work the same way.
 - **Password-protected archives** appear as one item with a box-with-padlock icon. They have no contents and can't be
   opened.
-- User data is keyed by `f:<source path>|<inner path>`.
+- Nodes are keyed by `f:<source path>|<inner path>`; disk folders by `f:<folder path>|`.
+- Each node keeps `label`, its name as given with its case, which Files-view search matches.
+- A nested archive that wasn't expanded (past the depth limit, or unreadable) stays a file node named `x.zip`.
 
 ## Naming rules (both views)
 
@@ -90,7 +96,7 @@ These are written by the resolver and rebuilt on every index, so user data never
   - The inner root still appears as its own volume, and its contents merge with the same folders in the outer one.
 - **Files whose lowercase names collide get a numbered postfix before the extension.** They are numbered in a stable
   order (by real path), starting at `_1`: `ORC.STL` and `Orc.stl` become `orc_1.stl` and `orc_2.stl`.
-- **Merge or number, by node kind** (as built in milestone 3):
+- **Merge or number, by node kind:**
   - Folders merge only when they are the same folder. That means the same real path ignoring case, or an inner root.
   - In the Models view, variant and part folders also merge by name inside one model.
   - Anything else that clashes is numbered. For folders the postfix goes at the end: `X.zip`, `x.rar` and a folder `x/`
@@ -106,7 +112,7 @@ These are written by the resolver and rebuilt on every index, so user data never
     folder of what it holds. For a model, that is the common folder of its files: pictures attached from elsewhere don't
     widen it.
 
-## Tag keys (milestone 8)
+## Tag keys
 
 - **User tags and hides are keyed by real path**, not by the `m:`/`f:` node keys: `r:` + the node's real path,
   lowercased, e.g. `r:d:\models\vol.1\robots.zip!legion/`. The same thing therefore has the same key in both views, and

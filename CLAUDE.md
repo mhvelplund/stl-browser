@@ -8,14 +8,16 @@ Windows desktop app (Rust + Tauri 2, Svelte 5 + TypeScript UI) for browsing 3D-p
 images, often inside RAR/ZIP/7Z archives nested in other archives. Folders are added to a SQLite index, rescanned
 incrementally, and browsed Explorer-style.
 
-**Read `docs/index.md` first.** It holds the milestone status, architecture, every design decision and the deferred
-review items. Other binding docs:
+**Read `docs/index.md` first.** It holds the architecture, the data on disk, the invariants and the testing patterns.
+The docs in `docs/` are the authority on how the app works:
 
-- `docs/superpowers/specs/2026-10-27-stl-browser-design.md`: the design spec, the final authority.
+- `docs/features.md`: how each feature behaves and why (indexing, views, thumbnails, drag/extract, open, search, tags,
+  multi-select).
+- `docs/ui.md`: layout, components, input, the pure TS modules, theme tokens, fixed UI text.
 - `docs/archive-patterns.md`: layout patterns, the model resolver algorithm, the parity baseline and spot checks.
 - `docs/virtual-tree.md`: resolved tables, Models/Files views, naming rules (lowercase, merge, `_1` postfixes, `!` hover
-  paths, padlock items).
-- `HANDOFF.md` (if present): the current session handoff and the next step.
+  paths, padlock items), node and tag keys.
+- `docs/known-issues.md`: open problems by area, and ideas not built yet.
 
 ## Commands
 
@@ -27,7 +29,7 @@ STL_BROWSER_RAR_FIXTURE=<some.rar> cargo test -p stl-scan --test rar -- --ignore
 STL_BROWSER_DRAG_CHECK="models|<folder>|<name>" cargo test -p app --lib drag_real -- --ignored   # real-data drop; needs an indexed STL_BROWSER_HOME
 cargo run --release -p stl-index --bin stlx -- add <dir> | index | extract <entry_id> <out>   # dev CLI
 cargo run --release -p stl-index --bin stlx -- tree models|files [<path>] [--depth N] [--real]  # print a view
-cargo run --release -p stl-index --bin stlx -- parity <prototype.db>   # compare resolved tables with the prototype (+ spot-checks.json in the app dir)
+cargo run --release -p stl-index --bin stlx -- parity <other.db>       # compare resolved tables with another index (+ spot-checks.json in the app dir)
 npm --prefix app run tauri dev                           # launch the app
 npm --prefix app run build:exe                           # release exe only -> target/release/stl-browser-<version>.exe
 npm --prefix app run build:installer                     # NSIS installer -> target/release/bundle/nsis/
@@ -72,8 +74,8 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
   `app/src/routes/+page.svelte` plus `app/src/lib/` (components, and pure `grid`/`nav`/`items`/`indexrun`/`carousel`/`selection`/`band`
   modules with tests):
   SvelteKit UI with the static adapter.
-- The Python prototype (the resolver's porting reference) was deleted after parity held in milestone 3. It is still in
-  git history, and its tests live on as `crates/stl-core/tests/{names,resolve,vtree_models}.rs`.
+- The resolver is a port of an earlier Python prototype (still in git history). Its tests live on as
+  `crates/stl-core/tests/{names,resolve,vtree_models}.rs`; the fidelity rules are in `docs/archive-patterns.md`.
 
 DB tables split into **cached listings** (`roots`, `sources`, `entries`; rebuildable) and **user data** (`settings`,
 `selected_thumb`, `tags`, `node_tags`; never rebuilt, keyed by stable path strings, never row ids). Resolved tables
@@ -111,6 +113,8 @@ bookkeeping for the regenerable `~/.stl-browser/thumbs/` cache; its rows cascade
 **Never commit directly to `main`** unless explicitly asked. To start a new feature, branch from a fresh `main`:
 `git checkout main && git pull` first, then `git checkout -b <feature-branch>`. Land work through a pull request.
 
-Milestones are planned with `superpowers:writing-plans` into `docs/superpowers/plans/` and executed inline with TDD per
-step, a ledger in `.superpowers/sdd/<plan>/`, and one fresh reviewer at the end. Keep `docs/index.md` (status,
-decisions, deferred items) up to date as work lands.
+Features are designed and planned with `superpowers:brainstorming` / `superpowers:writing-plans`. Specs and plans go in
+the git-ignored `.superpowers/specs/` and `.superpowers/plans/`, never in `docs/`. Plans are executed inline with TDD
+per step, a ledger in `.superpowers/sdd/<plan>/`, and one fresh reviewer at the end. When a feature lands, fold its
+durable rules and decisions into `docs/` (`features.md`, `ui.md`, `index.md`, deferred review items in
+`known-issues.md`); the docs describe the app as it is now, not its history.
