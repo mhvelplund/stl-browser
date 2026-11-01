@@ -35,3 +35,29 @@ jobs:
       - run: npm --prefix app test
 
       - run: cargo test --workspace
+
+  # TEMPORARY: dry run of release.yml's build-macos steps; remove before merging
+  macos-bundle:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: npm --prefix app ci
+      - run: npm --prefix app run build:installer
+      - run: npm --prefix app run build:exe
+      - name: Name the files
+        run: |
+          VERSION=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          ls -R target/universal-apple-darwin/release/bundle
+          mkdir dist
+          out=target/universal-apple-darwin/release
+          cp "${out}/bundle/dmg/STL Browser_${VERSION}_universal.dmg" "dist/stl-browser_${VERSION}_universal.dmg"
+          cp "${out}/stl-browser-${VERSION}-macos" dist/
+          file dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: dist/
+          if-no-files-found: error
