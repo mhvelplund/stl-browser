@@ -58,8 +58,10 @@ only UI are in [`features.md`](features.md). The clickable mockup the layout fol
   - square art (`TileArt`), a badge top-left (the archive format, or `MODEL`), the name (ellipsis) and `subtitle()`;
   - with more than one carousel slot: ‹ › buttons on hover/focus and a `k / n` chip. The arrows don't select or open the
     tile.
-- **`TileArt`:** a composite is a CSS 2×2 grid, and a pic is one `<img>` (`object-fit: contain`, `draggable="false"`).
-  An id with no url yet shows a pulsing skeleton. A `null` url, or no slot, shows `KindIcon`.
+- **`TileArt`:** a composite is a CSS 2×2 grid, and a pic (or a file's own `sub` picture) is one `<img>`
+  (`object-fit: contain`, `draggable="false"`). An id with no url yet shows a pulsing skeleton. A `null` url, or no
+  slot, shows `KindIcon`. While the pointer rests on a tile showing a mesh still (`hover` from `Tile`), the turntable
+  strip plays over it (`spin.ts`).
 - **`KindIcon`:** inline stroke SVGs: folder (volume, collection, group, folder, variant, part, images, docs), model
   (hex box), archive (box), mesh, image, other file, and a **box with a padlock** for locked archives. Locked tiles are
   tinted and never open.
@@ -87,7 +89,8 @@ only UI are in [`features.md`](features.md). The clickable mockup the layout fol
 | `nav.ts` | Immutable navigation history: `open`, `goTo`, `up`, `goBack`, `settle` (follow a fallback path), `crumbs` |
 | `items.ts` | Tile subtitles and the title-row summary (singular/plural) |
 | `indexrun.ts`, `extractrun.ts` | Status-bar text for finished index and extract runs ("Stopped after N of M") |
-| `carousel.ts` | Slots from an item, stepping, slot keys, and high/low thumbnail requests from the visible range |
+| `carousel.ts` | Slots from an item (and a file's own extra pictures), stepping, slot keys, and high/low thumbnail requests from the visible range |
+| `spin.ts` | The turntable strip's url for a mesh still, frame count and hover delay |
 | `dragstart.ts` | The 6 px drag threshold |
 | `search.ts` | Highlight runs from char marks (`Array.from`), the relative "where" path, the scope label |
 | `tags.ts` | Kind order and labels, dot kinds, grouping, `removalAction`, `mergeTags` for a selection |

@@ -10,12 +10,12 @@ use stl_scan::extract::extract_many_entries;
 
 use ::image::RgbaImage;
 
-use crate::cache::{cache_rel, content_hash, content_name, is_complete, location_dir, spin_rel};
+use crate::cache::{cache_rel, content_hash, content_name, extra_rel, is_complete, location_dir, pics_rel, spin_rel};
 use crate::image::{encode_jpeg, image_thumb};
 use crate::mesh::load_mesh;
-use crate::preview::preview_bytes;
+use crate::preview::{preview_bytes, threemf_pictures};
 use crate::raster::{render, render_spin};
-use crate::{ThumbKind, has_spin, thumb_kind};
+use crate::{ThumbKind, has_extras, thumb_kind};
 
 const MAX_IMAGE: u64 = 64 * 1024 * 1024;
 const MAX_MESH: u64 = 256 * 1024 * 1024;
@@ -116,7 +116,7 @@ fn generate_with(thumbs_dir: &Path, jobs: &[Job], done: &mut dyn FnMut(&Job, Out
         // with a stored CRC the cache name is known without reading the file
         if let Some(content) = content_name(&job.crc, job.size) {
             let rel = cache_rel(&location_dir(&job.source_path, &job.chain), &content);
-            if is_complete(thumbs_dir, &rel, has_spin(job.name())) {
+            if is_complete(thumbs_dir, &rel, job.name()) {
                 done(job, Ok(rel));
                 continue;
             }
@@ -162,23 +162,29 @@ fn make(thumbs_dir: &Path, job: &Job, bytes: &[u8]) -> Outcome {
     let (path, spin_path) = (thumbs_dir.join(&rel), thumbs_dir.join(spin_rel(&rel)));
     let kind = thumb_kind(job.name());
     let have_still = path.is_file();
-    if have_still && (kind != Some(ThumbKind::Mesh) || spin_path.is_file()) {
+    if is_complete(thumbs_dir, &rel, job.name()) {
         return Ok(rel);
     }
-    let decoded = catch_unwind(AssertUnwindSafe(|| -> Result<(Option<RgbaImage>, Vec<crate::mesh::Tri>), String> {
+    // the still (unless it is there), a mesh's triangles for its strip, a 3MF's other pictures
+    type Decoded = (Option<RgbaImage>, Vec<crate::mesh::Tri>, Option<Vec<Vec<u8>>>);
+    let decoded = catch_unwind(AssertUnwindSafe(|| -> Result<Decoded, String> {
         match kind {
-            Some(ThumbKind::Image) => Ok((Some(image_thumb(bytes)?), Vec::new())),
-            Some(ThumbKind::Preview) => Ok((Some(image_thumb(&preview_bytes(job.name(), bytes)?)?), Vec::new())),
+            Some(ThumbKind::Image) => Ok((Some(image_thumb(bytes)?), Vec::new(), None)),
+            Some(ThumbKind::Preview) if has_extras(job.name()) => {
+                let (default, extras) = threemf_pictures(bytes)?;
+                Ok(((!have_still).then(|| image_thumb(&default)).transpose()?, Vec::new(), Some(extras)))
+            }
+            Some(ThumbKind::Preview) => Ok((Some(image_thumb(&preview_bytes(job.name(), bytes)?)?), Vec::new(), None)),
             Some(ThumbKind::Mesh) => {
                 let tris = load_mesh(job.name(), bytes)?;
-                Ok(((!have_still).then(|| render(&tris)), tris))
+                Ok(((!have_still).then(|| render(&tris)), tris, None))
             }
             None => Err("no thumbnail for this file type".into()),
         }
     }))
     .unwrap_or_else(|_| Err("internal error while decoding".into()))
     .map_err(Failure::Bad)?;
-    let (still, tris) = decoded;
+    let (still, tris, extras) = decoded;
     if let Some(img) = still {
         write_atomic(&path, &encode_jpeg(&img).map_err(Failure::Bad)?, job.entry_id)?;
     }
@@ -188,7 +194,25 @@ fn make(thumbs_dir: &Path, job: &Job, bytes: &[u8]) -> Outcome {
             let _ = write_atomic(&spin_path, &jpg, job.entry_id);
         }
     }
+    if let Some(extras) = extras {
+        write_extras(thumbs_dir, &rel, &extras, job.entry_id);
+    }
     Ok(rel)
+}
+
+/// A 3MF's other pictures as `.p<i>.jpg` (one that won't decode is skipped), then their count.
+/// Failures only cost carousel slots.
+fn write_extras(thumbs_dir: &Path, rel: &str, extras: &[Vec<u8>], entry_id: i64) {
+    let mut n = 0;
+    for pic in extras {
+        let jpg = catch_unwind(AssertUnwindSafe(|| image_thumb(pic).and_then(|img| encode_jpeg(&img)))).unwrap_or_else(|_| Err("panic".into()));
+        if let Ok(jpg) = jpg
+            && write_atomic(&thumbs_dir.join(extra_rel(rel, n + 1)), &jpg, entry_id).is_ok()
+        {
+            n += 1;
+        }
+    }
+    let _ = write_atomic(&thumbs_dir.join(pics_rel(rel)), n.to_string().as_bytes(), entry_id);
 }
 
 /// Write a cache file via a temp file and a rename, so a reader never sees half a file.
@@ -325,6 +349,37 @@ mod tests {
         assert_eq!(dims(by_name("a.lys").unwrap()), (256, 256));
         assert_eq!(dims(by_name("b.3mf").unwrap()), (256, 128));
         assert!(matches!(by_name("c.lys"), Err(Failure::Bad(_))));
+    }
+
+    #[test]
+    fn a_3mf_writes_its_carousel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("kit.zip");
+        let project = zip(&[
+            ("Metadata/plate_1.png", &png(40, 20)),
+            ("Metadata/plate_2.png", &png(20, 40)),
+            ("Metadata/plate_3.png", b"broken"),
+            ("Auxiliaries/Model Pictures/a.png", &png(30, 30)),
+        ]);
+        std::fs::write(&p, zip(&[("b.3mf", &project)])).unwrap();
+        let jobs = archive_jobs(&p);
+        let thumbs = tmp.path().join("thumbs");
+        let rel = run(&thumbs, &jobs)[&1].clone().unwrap();
+        let dims = |r: &str| {
+            let img = ::image::open(thumbs.join(r)).unwrap();
+            (img.width(), img.height())
+        };
+        assert_eq!(dims(&rel), (256, 128)); // plate 1: there is no .rels
+        let extras = crate::cache::extra_rels(&thumbs, &rel);
+        assert_eq!(extras.len(), 2, "{extras:?}"); // the broken plate is skipped
+        assert_eq!(dims(&extras[0]), (128, 256));
+        assert_eq!(dims(&extras[1]), (256, 256));
+        // an older still without the carousel is filled in and left alone
+        std::fs::remove_file(thumbs.join(pics_rel(&rel))).unwrap();
+        std::fs::write(thumbs.join(&rel), b"old still").unwrap();
+        assert_eq!(run(&thumbs, &jobs)[&1].as_ref().unwrap(), &rel);
+        assert_eq!(crate::cache::extra_rels(&thumbs, &rel).len(), 2);
+        assert_eq!(std::fs::read(thumbs.join(&rel)).unwrap(), b"old still");
     }
 
     #[test]

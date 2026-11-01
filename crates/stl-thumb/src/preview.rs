@@ -38,23 +38,60 @@ fn lys_preview(b: &[u8]) -> Result<&[u8], String> {
     b.get(usize::try_from(start).map_err(|_| bad())?..usize::try_from(end).map_err(|_| bad())?).ok_or_else(|| "scene preview is cut off".into())
 }
 
+/// Most pictures a 3MF's carousel gets after its default one.
+pub const MAX_EXTRAS: usize = 12;
+
+type Zip<'a> = zip::ZipArchive<Cursor<&'a [u8]>>;
+
 fn threemf_preview(b: &[u8]) -> Result<Vec<u8>, String> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(b)).map_err(|e| format!("not a 3MF: {e}"))?;
+    Ok(default_picture(&mut open_3mf(b)?)?.1)
+}
+
+/// A 3MF's carousel: its default picture (the package thumbnail), then the other pictures worth
+/// a slot, each as encoded bytes. The others are the plate renders (`Metadata/plate_<n>.png`,
+/// by plate) and the designer's photos (`Auxiliaries/Model Pictures/`, by name), never the
+/// default again, at most `MAX_EXTRAS`. Small copies, unlit renders, top views, the slicer's
+/// object-picking masks and profile pictures are left out.
+pub fn threemf_pictures(b: &[u8]) -> Result<(Vec<u8>, Vec<Vec<u8>>), String> {
+    let mut zip = open_3mf(b)?;
+    let (default_name, default) = default_picture(&mut zip)?;
+    let names: Vec<String> = zip.file_names().filter_map(|n| n.ok()).map(|n| n.into_owned()).collect();
+    let mut plates: Vec<(u32, &String)> = names
+        .iter()
+        .filter_map(|n| Some((n.strip_prefix("Metadata/plate_")?.strip_suffix(".png")?.parse().ok()?, n)))
+        .collect();
+    plates.sort();
+    let mut photos: Vec<&String> = names
+        .iter()
+        .filter(|n| n.starts_with("Auxiliaries/Model Pictures/") && crate::thumb_kind(n) == Some(crate::ThumbKind::Image))
+        .collect();
+    photos.sort();
+    let wanted = plates.into_iter().map(|(_, n)| n).chain(photos).filter(|n| **n != default_name);
+    let extras = wanted.filter_map(|n| member(&mut zip, n).ok()).take(MAX_EXTRAS).collect();
+    Ok((default, extras))
+}
+
+fn open_3mf(b: &[u8]) -> Result<Zip<'_>, String> {
+    zip::ZipArchive::new(Cursor::new(b)).map_err(|e| format!("not a 3MF: {e}"))
+}
+
+/// The package thumbnail named in `_rels/.rels`, else a picture slicers write; with its name.
+fn default_picture(zip: &mut Zip<'_>) -> Result<(String, Vec<u8>), String> {
     let mut wanted = Vec::new();
-    if let Ok(rels) = member(&mut zip, "_rels/.rels") {
+    if let Ok(rels) = member(zip, "_rels/.rels") {
         wanted.extend(thumbnail_target(&String::from_utf8_lossy(&rels)));
     }
     wanted.push("Metadata/thumbnail.png".into());
     wanted.push("Metadata/plate_1.png".into());
     for name in wanted {
-        if let Ok(pic) = member(&mut zip, &name) {
-            return Ok(pic);
+        if let Ok(pic) = member(zip, &name) {
+            return Ok((name, pic));
         }
     }
     Err("no preview in the 3MF".into())
 }
 
-fn member(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Result<Vec<u8>, String> {
+fn member(zip: &mut Zip<'_>, name: &str) -> Result<Vec<u8>, String> {
     let f = zip.by_name(name).map_err(|e| e.to_string())?;
     if f.size() > MAX_PICTURE {
         return Err("too large".into());
@@ -136,6 +173,48 @@ mod tests {
         assert_eq!(preview_bytes("m.3mf", &zip(&[("_rels/.rels", b"<junk"), ("Metadata/plate_1.png", &pic)])).unwrap(), pic);
         assert!(preview_bytes("m.3mf", &zip(&[("3D/3dmodel.model", b"<model/>")])).is_err());
         assert!(preview_bytes("m.3mf", b"not a zip").is_err());
+    }
+
+    const RELS: &[u8] = br#"<Relationships>
+ <Relationship Target="/Metadata/plate_2.png" Id="rel-2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail"/>
+</Relationships>"#;
+
+    #[test]
+    fn threemf_carousel_order_and_exclusions() {
+        let pic = |w: u32| png(w, 1);
+        let f = zip(&[
+            ("_rels/.rels", RELS),
+            ("Metadata/plate_10.png", &pic(10)),
+            ("Metadata/plate_2.png", &pic(2)),
+            ("Metadata/plate_1.png", &pic(1)),
+            ("Metadata/plate_1_small.png", &pic(91)),
+            ("Metadata/plate_no_light_1.png", &pic(92)),
+            ("Metadata/top_1.png", &pic(93)),
+            ("Metadata/pick_1.png", &pic(94)),
+            ("Auxiliaries/.thumbnails/thumbnail_small.png", &pic(95)),
+            ("Auxiliaries/Profile Pictures/me.webp", &pic(96)),
+            ("Auxiliaries/Model Pictures/b.png", &pic(21)),
+            ("Auxiliaries/Model Pictures/a.png", &pic(20)),
+            ("Auxiliaries/Model Pictures/notes.txt", b"x"),
+        ]);
+        let (default, extras) = threemf_pictures(&f).unwrap();
+        assert_eq!(default, pic(2)); // the .rels thumbnail, and not repeated below
+        assert_eq!(extras, [pic(1), pic(10), pic(20), pic(21)]);
+    }
+
+    #[test]
+    fn threemf_extras_are_capped() {
+        let names: Vec<String> = (1..=20).map(|i| format!("Metadata/plate_{i}.png")).collect();
+        let pics: Vec<Vec<u8>> = (1..=20).map(|i| png(i, 1)).collect();
+        let files: Vec<(&str, &[u8])> = names.iter().map(String::as_str).zip(pics.iter().map(Vec::as_slice)).collect();
+        let (default, extras) = threemf_pictures(&zip(&files)).unwrap();
+        assert_eq!(default, pics[0]); // no .rels: plate 1
+        assert_eq!(extras.len(), MAX_EXTRAS);
+        assert_eq!(extras[0], pics[1]);
+        // a plain 3MF has just its one picture
+        let (_, none) = threemf_pictures(&zip(&[("Metadata/thumbnail.png", &png(3, 3))])).unwrap();
+        assert!(none.is_empty());
+        assert!(threemf_pictures(b"junk").is_err());
     }
 
     #[test]

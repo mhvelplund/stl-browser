@@ -69,8 +69,13 @@ when a review defers them.
 - **Carousels ask for up to 6 STL renders** as well as images, so a first visit renders more. Collecting pictures walks
   until both caps are reached, and `locate` lowercases every real path of the target view on each switch. Both are fine
   on a large library so far.
-- **Not checked by hand:** thumbnails in the light theme, OBJ files from real data, and padlock tiles next to
-  thumbnails.
+- **Not checked by hand:** thumbnails in the light theme, OBJ files from real data, padlock tiles next to
+  thumbnails, the turntable on hover and a 3MF's carousel in the running app.
+- **A mesh whose strip always fails** (a renderer panic) is re-read each time its folder is shown, since only a
+  complete entry counts as cached.
+- **A 3MF's carousel arrives after its still**, so its ‹ › arrows appear once the thumbnail answer comes in.
+- **A 3MF without a picture has no thumbnail.** Rendering its mesh XML (objects split across `3D/Objects/*.model` in
+  slicer files) is not built.
 
 ## Drag-out, Extract to… and opening files
 

@@ -1,6 +1,9 @@
 //! Cache layout: `<thumbs dir>/<location>/<content>.jpg`. The location says where a file is
 //! (source path + chain), the content says what it holds, so a moved or changed file never
 //! reuses a stale thumbnail.
+use std::path::Path;
+
+use crate::{has_extras, has_spin};
 
 /// First 16 hex chars of blake3(`source path` + `\0` + chain joined with `\0`).
 pub fn location_dir(source_path: &str, chain: &[String]) -> String {
@@ -32,19 +35,43 @@ pub fn spin_rel(rel: &str) -> String {
     format!("{}.spin.jpg", rel.strip_suffix(".jpg").unwrap_or(rel))
 }
 
-/// True when the cache holds everything a file of this kind gets: the still, and for a mesh
-/// (`spin`) its turntable strip too.
-pub fn is_complete(thumbs_dir: &std::path::Path, rel: &str, spin: bool) -> bool {
-    thumbs_dir.join(rel).is_file() && (!spin || thumbs_dir.join(spin_rel(rel)).is_file())
+/// Picture `i` (from 1) of a 3MF's carousel after its still: `<location>/<content>.p<i>.jpg`.
+pub fn extra_rel(rel: &str, i: usize) -> String {
+    format!("{}.p{i}.jpg", rel.strip_suffix(".jpg").unwrap_or(rel))
 }
 
-/// Only `<16 lowercase hex>/<lowercase hex and dashes>[.spin].jpg` names a cache file (so rows
-/// from the earlier WebP cache count as stale and are regenerated).
+/// How many carousel pictures a 3MF has, written after them: `<location>/<content>.pics`.
+pub fn pics_rel(rel: &str) -> String {
+    format!("{}.pics", rel.strip_suffix(".jpg").unwrap_or(rel))
+}
+
+/// The carousel pictures after the still at `rel` that are on disk, in order (none until the
+/// count file is written).
+pub fn extra_rels(thumbs_dir: &Path, rel: &str) -> Vec<String> {
+    let n: usize = std::fs::read_to_string(thumbs_dir.join(pics_rel(rel))).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+    (1..=n.min(64)).map(|i| extra_rel(rel, i)).filter(|r| thumbs_dir.join(r).is_file()).collect()
+}
+
+/// True when the cache holds everything the file `name` gets: the still, a mesh's turntable
+/// strip, a 3MF's carousel count.
+pub fn is_complete(thumbs_dir: &Path, rel: &str, name: &str) -> bool {
+    thumbs_dir.join(rel).is_file()
+        && (!has_spin(name) || thumbs_dir.join(spin_rel(rel)).is_file())
+        && (!has_extras(name) || thumbs_dir.join(pics_rel(rel)).is_file())
+}
+
+/// Only `<16 lowercase hex>/<lowercase hex and dashes>[.spin|.p<n>].jpg` names a cache file
+/// (so rows from the earlier WebP cache count as stale and are regenerated).
 pub fn is_valid_rel(rel: &str) -> bool {
     let lower_hex = |c: char| c.is_ascii_digit() || ('a'..='f').contains(&c);
     let Some((dir, file)) = rel.split_once('/') else { return false };
     let Some(stem) = file.strip_suffix(".jpg") else { return false };
-    let stem = stem.strip_suffix(".spin").unwrap_or(stem);
+    let stem = match stem.rsplit_once('.') {
+        Some((s, "spin")) => s,
+        Some((s, p)) if p.len() > 1 && p.starts_with('p') && p[1..].chars().all(|c| c.is_ascii_digit()) => s,
+        Some(_) => return false,
+        None => stem,
+    };
     dir.len() == 16 && dir.chars().all(lower_hex) && !stem.is_empty() && stem.chars().all(|c| lower_hex(c) || c == '-')
 }
 
@@ -66,12 +93,37 @@ mod tests {
     }
 
     #[test]
+    fn extras_need_their_count_and_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rel = "0123456789abcdef/1a-4.jpg";
+        std::fs::create_dir_all(tmp.path().join("0123456789abcdef")).unwrap();
+        std::fs::write(tmp.path().join(rel), b"j").unwrap();
+        for i in [1, 2, 4] {
+            std::fs::write(tmp.path().join(extra_rel(rel, i)), b"j").unwrap();
+        }
+        assert!(extra_rels(tmp.path(), rel).is_empty()); // no count yet
+        assert!(!is_complete(tmp.path(), rel, "a.3mf"));
+        assert!(is_complete(tmp.path(), rel, "a.lys"));
+        std::fs::write(tmp.path().join(pics_rel(rel)), "4").unwrap();
+        assert_eq!(extra_rels(tmp.path(), rel), [extra_rel(rel, 1), extra_rel(rel, 2), extra_rel(rel, 4)]);
+        assert!(is_complete(tmp.path(), rel, "a.3mf"));
+        assert!(!is_complete(tmp.path(), rel, "a.stl")); // no strip
+    }
+
+    #[test]
     fn cache_rel_is_validated() {
         assert!(is_valid_rel("0123456789abcdef/1a2b3c4d-1234.jpg"));
         assert!(is_valid_rel("0123456789abcdef/0123456789abcdef0123456789abcdef.jpg"));
         assert!(is_valid_rel("0123456789abcdef/1a2b3c4d-1234.spin.jpg"));
         assert_eq!(spin_rel("0123456789abcdef/1a2b3c4d-1234.jpg"), "0123456789abcdef/1a2b3c4d-1234.spin.jpg");
+        assert!(is_valid_rel("0123456789abcdef/1a2b3c4d-1234.p12.jpg"));
+        assert_eq!(extra_rel("0123456789abcdef/1a-4.jpg", 3), "0123456789abcdef/1a-4.p3.jpg");
+        assert_eq!(pics_rel("0123456789abcdef/1a-4.jpg"), "0123456789abcdef/1a-4.pics");
         for bad in [
+            "0123456789abcdef/1a-4.pics",
+            "0123456789abcdef/1a-4.p.jpg",
+            "0123456789abcdef/1a-4.px.jpg",
+            "0123456789abcdef/1a-4.p1.spin.jpg",
             "0123456789abcdef/a.spin.spin.jpg",
             "0123456789abcdef/.spin.jpg",
             "0123456789abcdef/a.other.jpg",

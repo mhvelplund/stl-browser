@@ -6,7 +6,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use stl_scan::extract::SourceKind;
 use stl_thumb::cache::{cache_rel, content_name, is_complete, is_valid_rel, location_dir};
 use stl_thumb::generate::{Failure, Job, Outcome};
-use stl_thumb::{has_spin, thumb_kind};
+use stl_thumb::thumb_kind;
 
 use crate::scanstore::IndexError;
 
@@ -16,8 +16,8 @@ pub struct Lookup {
     pub ready: Vec<(i64, String)>,
     /// Entries whose thumbnail failed; not retried until the entry changes.
     pub failed: Vec<i64>,
-    /// Everything else that can have a thumbnail, and meshes in `ready` still missing their
-    /// turntable strip.
+    /// Everything else that can have a thumbnail, and entries in `ready` still missing the rest
+    /// (a mesh's turntable strip, a 3MF's carousel).
     pub jobs: Vec<Job>,
 }
 
@@ -48,13 +48,13 @@ pub fn lookup(conn: &Connection, thumbs_dir: &Path, ids: &[i64]) -> Result<Looku
                 .optional()?;
             let Some((chain, size, crc, kind, source_path, status, rel)) = row else { continue };
             let chain: Vec<String> = serde_json::from_str(&chain).unwrap_or_default();
-            let Some(name) = chain.last().filter(|n| thumb_kind(n).is_some()) else { continue };
-            let spin = has_spin(name);
-            // a mesh still cached without its turntable strip shows now and is queued for the strip
+            let Some(name) = chain.last().filter(|n| thumb_kind(n).is_some()).cloned() else { continue };
+            // a still cached without the rest (a mesh's strip, a 3MF's carousel) shows now and
+            // is queued for the rest
             let mut shown = false;
             match (status.as_deref(), rel) {
                 (Some("ok"), Some(rel)) if is_valid_rel(&rel) && thumbs_dir.join(&rel).is_file() => {
-                    let complete = is_complete(thumbs_dir, &rel, spin);
+                    let complete = is_complete(thumbs_dir, &rel, &name);
                     out.ready.push((id, rel));
                     if complete {
                         continue;
@@ -84,7 +84,7 @@ pub fn lookup(conn: &Connection, thumbs_dir: &Path, ids: &[i64]) -> Result<Looku
                 let rel = cache_rel(&location_dir(&job.source_path, &job.chain), &content);
                 if thumbs_dir.join(&rel).is_file() {
                     record(&tx, &job, &Ok(rel.clone()))?;
-                    let complete = is_complete(thumbs_dir, &rel, spin);
+                    let complete = is_complete(thumbs_dir, &rel, &name);
                     out.ready.push((id, rel));
                     if complete {
                         continue;

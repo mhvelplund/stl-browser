@@ -5,7 +5,7 @@
   import type { Item, View } from "./api";
   import { gridHits, type Rect } from "./band";
   import { bandGesture } from "./bandgesture";
-  import { current } from "./carousel";
+  import { current, type Extras } from "./carousel";
   import type { Mods } from "./selection";
   import { columns, revealTop, tileWidth, visibleRows } from "./grid";
   import Tile from "./Tile.svelte";
@@ -21,6 +21,7 @@
     onOpen,
     onScroll,
     urls,
+    extras,
     chosen,
     onSlot,
     onVisible,
@@ -45,6 +46,8 @@
     onOpen: (i: T) => void;
     onScroll: (top: number) => void;
     urls: SvelteMap<number, string | null>;
+    /** A file's own extra picture urls by entry id. */
+    extras: Extras;
     /** Slots picked this session, by item key. */
     chosen: SvelteMap<string, number>;
     onSlot: (i: T, slot: number) => void;
@@ -159,10 +162,11 @@
             {item}
             {view}
             selected={selected.has(idOf(item))}
-            slot={current(item, chosen)}
+            slot={current(item, chosen, extras)}
             caption={captionOf?.(item)}
             marks={marksOf?.(item)}
             {urls}
+            {extras}
             onSelect={(i, m) => onSelect(i as T, m)}
             onOpen={(i) => onOpen(i as T)}
             onSlot={(i, s) => onSlot(i as T, s)}

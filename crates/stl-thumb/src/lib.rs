@@ -31,6 +31,12 @@ pub fn has_spin(name: &str) -> bool {
     thumb_kind(name) == Some(ThumbKind::Mesh)
 }
 
+/// True when a file of this name gets a carousel of its own pictures after its still (a 3MF's
+/// plate renders and photos, `cache::extra_rels`).
+pub fn has_extras(name: &str) -> bool {
+    thumb_kind(name) == Some(ThumbKind::Preview) && name.to_ascii_lowercase().ends_with(".3mf")
+}
+
 /// Which files get a thumbnail, by extension.
 pub fn thumb_kind(name: &str) -> Option<ThumbKind> {
     let mut parts = name.split(['/', '\\']);
@@ -74,6 +80,14 @@ mod tests {
         assert!(!has_spin("b.lys"));
         assert!(!has_spin("b.png"));
         assert!(!has_spin("__MACOSX/._b.stl"));
+    }
+
+    #[test]
+    fn only_3mf_has_extras() {
+        assert!(has_extras("a/B.3MF"));
+        assert!(!has_extras("b.lys"));
+        assert!(!has_extras("b.stl"));
+        assert!(!has_extras("__MACOSX/._b.3mf"));
     }
 
     #[test]

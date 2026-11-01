@@ -8,7 +8,7 @@ use stl_index::thumbstore::{lookup, record};
 use stl_index::{db, resolvestore, scanstore};
 use stl_scan::extract::SourceKind;
 use stl_scan::nested::ListOptions;
-use stl_thumb::cache::{cache_rel, content_name, location_dir, spin_rel};
+use stl_thumb::cache::{cache_rel, content_name, location_dir, pics_rel, spin_rel};
 use stl_thumb::generate::{Failure, Job};
 
 /// `<tmp>/lib/Vol/Coll/{Kit.zip (Kit/a.png, Kit/b.stl), c.png}`, indexed.
@@ -125,6 +125,24 @@ fn mesh_without_its_strip_shows_and_is_queued() {
     let l = lookup(&conn, &thumbs(tmp.path()), &[b]).unwrap();
     assert_eq!(l.ready, [(b, rel)]);
     assert!(l.jobs.is_empty());
+}
+
+#[test]
+fn threemf_without_its_carousel_shows_and_is_queued() {
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "lib/Vol/Coll/Kit.zip", &zip(&[("Kit/a.3mf", b"project")]));
+    let mut conn = db::open(&tmp.path().join("index.db")).unwrap();
+    scanstore::add_root(&conn, &tmp.path().join("lib/Vol")).unwrap();
+    resolvestore::index_all(&mut conn, &ListOptions::default(), &mut |_| {}).unwrap();
+    let a = id(&conn, "Kit/a.3mf");
+    let j = job(&conn, tmp.path(), a);
+    let rel = cache_rel(&location_dir(&j.source_path, &j.chain), &content_name(&j.crc, j.size).unwrap());
+    touch(&thumbs(tmp.path()), &rel);
+    let l = lookup(&conn, &thumbs(tmp.path()), &[a]).unwrap();
+    assert_eq!((l.ready.len(), l.jobs.len()), (1, 1));
+    touch(&thumbs(tmp.path()), &pics_rel(&rel));
+    let l = lookup(&conn, &thumbs(tmp.path()), &[a]).unwrap();
+    assert_eq!((l.ready.len(), l.jobs.len()), (1, 0));
 }
 
 #[test]

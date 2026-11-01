@@ -53,9 +53,9 @@ Cargo workspace (`crates/*` + `app/src-tauri`), layered so I/O stays out of the 
   file by its `chain` of archive members; `discover.rs` walks a root and emits one source per archive plus one per
   top-level folder with loose files; `extract_many_entries` reads many files from one archive in a single pass.
 - `crates/stl-thumb`: thumbnails. `cache.rs` (cache names), `image.rs` (scale within 256×256 + JPEG q80), `mesh.rs` (STL/OBJ),
-  `preview.rs` (the pictures embedded in 3MF and LYS files), `raster.rs` (CPU z-buffer renderer and the 12-frame
+  `preview.rs` (the pictures embedded in 3MF and LYS files; a 3MF's carousel), `raster.rs` (CPU z-buffer renderer and the 12-frame
   turntable strip shown on hover), `generate.rs` (one archive pass per batch), `queue.rs` (two-level priority queue
-  with replace semantics). Render one file by hand: `cargo run --release -p stl-thumb --example thumb -- [--spin] <in> <out.jpg>`.
+  with replace semantics). Render one file by hand: `cargo run --release -p stl-thumb --example thumb -- [--spin|--all] <in> <out.jpg>`.
 - `crates/stl-drag`: Windows-only OLE drag-out.
   - `data.rs` is the `IDataObject`: file descriptors, file contents written on request, async copy.
   - `stream.rs` is an `IStream` over a delete-on-close temp file, and `source.rs` is the drop source.

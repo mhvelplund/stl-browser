@@ -2,19 +2,22 @@
   // The square art of a tile: a thumbnail, a 2×2 composite, a placeholder while generating, or
   // the kind icon when there is no thumbnail.
   import type { SvelteMap } from "svelte/reactivity";
-  import type { Slot } from "./carousel";
+  import type { Extras, Slot } from "./carousel";
   import KindIcon from "./KindIcon.svelte";
   import { SPIN_DELAY_MS, SPIN_FRAMES, spinUrl } from "./spin";
 
   let {
     slot,
     urls,
+    extras,
     kind,
     fileKind,
     hover = false,
   }: {
     slot: Slot | null;
     urls: SvelteMap<number, string | null>;
+    /** A file's own extra picture urls by entry id (`sub` slots). */
+    extras: Extras;
     kind: string;
     fileKind: string | null;
     /** The pointer is on the tile: a mesh thumbnail turns. */
@@ -24,9 +27,15 @@
   /** `undefined` = not known yet, `null` = no thumbnail. */
   const url = (id: number) => urls.get(id);
   const pending = $derived(
-    slot !== null && (slot.kind === "pic" ? url(slot.thumb.entryId) === undefined : slot.cells.some((c) => url(c.entryId) === undefined)),
+    slot !== null &&
+      (slot.kind === "pic"
+        ? url(slot.thumb.entryId) === undefined
+        : slot.kind === "composite" && slot.cells.some((c) => url(c.entryId) === undefined)),
   );
-  const single = $derived(slot?.kind === "pic" ? url(slot.thumb.entryId) : null);
+  // a `sub` slot only exists once its file's pictures have arrived
+  const single = $derived(
+    slot?.kind === "pic" ? url(slot.thumb.entryId) : slot?.kind === "sub" ? (extras.get(slot.thumb.entryId)?.[slot.n - 1] ?? null) : null,
+  );
 
   // after a short rest, load the strip; it plays once loaded (a strip that isn't there yet, or
   // a thumbnail without one, leaves the still)

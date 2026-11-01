@@ -110,12 +110,35 @@ Both trees are built in memory from the DB (`views.rs` loads rows, `stl-core::vt
 - **The CRC shortcut:** an archive entry's cache name is known without extracting it, so a cache hit costs nothing.
 - **`thumbs` rows** (`entry_id`, `cache_rel`, `status`, `error`) cascade with their entry. An `ok` row counts only while
   its file exists, so deleting `thumbs/` regenerates everything. An `error` row isn't retried until the entry changes.
-- **What gets a thumbnail:** images `jpg jpeg png webp gif bmp` (≤ 64 MiB) and meshes `stl obj` (≤ 256 MiB). Bigger
-  files get an error row ("too large") without being read. macOS AppleDouble files (`__MACOSX/`, `._x.stl`) get none.
+- **What gets a thumbnail:** images `jpg jpeg png webp gif bmp` (≤ 64 MiB), meshes `stl obj` (≤ 256 MiB) and scenes
+  `3mf lys` (≤ 512 MiB). Bigger files get an error row ("too large") without being read. macOS AppleDouble files
+  (`__MACOSX/`, `._x.stl`) get none.
+- **More files next to the still** (`cache.rs`). An entry counts as cached (`is_complete`) only when they are all there.
+  A still cached without them is answered at once *and* queued, and the job fills in the rest without touching it:
+  - a mesh's turntable strip `<content>.spin.jpg`;
+  - a 3MF's carousel pictures `<content>.p<i>.jpg`, then their count `<content>.pics` (written last, also when it is 0).
 - **The renderer** (`raster.rs`) is a CPU z-buffer, so no GPU is needed. It uses an orthographic isometric camera from
   (1, −1, 1) with Z up, fitted to the projected bounds with a 6 % margin. Shading is flat, two-sided grey Lambert, with
   the light 25° up-left of the view direction. It renders at 2× and box-downsamples. Flat, point and empty meshes must
-  not panic. `cargo run --release -p stl-thumb --example thumb -- <in> <out.png>` renders one file.
+  not panic. `cargo run --release -p stl-thumb --example thumb -- [--spin|--all] <in> <out.jpg>` writes one file's
+  still, its strip, or a 3MF's whole carousel.
+- **The turntable strip** is `SPIN_FRAMES` (12) squares side by side (3072×256): the camera steps 30° around Z from the
+  still's view, every frame with one scale and centre (the bounding box's middle), so the model turns in place. It is
+  made in the same pass as the still while the triangles are in memory, because making it on hover would mean
+  extracting the file again (seconds in a big solid RAR). Frames skip the 2× supersampling, yet the strip still costs
+  about 8× the still (~2.5 s for a 240 MB STL). A JPEG strip rather than a GIF: same encoder and naming, no 256-colour
+  banding. A strip that fails leaves the still alone.
+- **Scene previews** (`preview.rs`) are the pictures the files carry, not renders:
+  - **LYS** is an Electron asar container: `u32 4`, `u32` header pickle size, `u32`, `u32` JSON length, the JSON file
+    table at offset 16 (`mangoFiles`, or `files`), data from 8 + pickle size. The thumbnail is its `preview.png`
+    (512×512 in the real data; `offset` is a decimal string).
+  - **3MF** is a ZIP. The default picture is the package thumbnail its `_rels/.rels` names (OPC type
+    `…/metadata/thumbnail`), else `Metadata/thumbnail.png`, else `Metadata/plate_1.png`. Its carousel then has the
+    plate renders `Metadata/plate_<n>.png` by plate number and the designer's photos `Auxiliaries/Model Pictures/*` by
+    name, never the default again, at most 12 (`MAX_EXTRAS`); one that won't decode is skipped. Small copies
+    (`plate_N_small`, `thumbnail_*`), unlit renders, top views, the slicer's object-picking masks (`pick_N`) and profile
+    pictures are left out. A 3MF without any picture has no thumbnail; rendering its mesh XML is not built.
+  - Broken or cut-off files are an error, never a panic.
 
 ### Queue and service (`queue.rs`, `app/src-tauri/src/thumbs.rs`)
 
@@ -125,19 +148,28 @@ Both trees are built in memory from the DB (`views.rs` loads rows, `stl-core::vt
 - **Workers** are std threads (cores − 1). rayon doesn't fit, because the queue needs priorities, grouping and
   replace. A worker takes the first high job (else low), then every queued job from the same archive level, up to 64.
   It reads them in one archive pass (`extract_many_entries`) and renders. A panic in a batch is caught. Each job emits
-  `thumb-ready { entryId, url | null, pending }`.
+  `thumb-ready { entryId, url | null, extras, pending }`; `extras` are the urls of a file's own carousel pictures (a
+  3MF's), also in `request_thumbs` answers.
 - **The `thumb` protocol** serves `http://thumb.localhost/<rel>` on Windows. `rel` must pass `cache::is_valid_rel`
-  (16 lowercase hex, `/`, `[0-9a-f-]+.jpg`), otherwise the answer is 404, and so is a missing file. Responses are
-  `image/jpeg` and cached as immutable, because names are content hashes.
+  (16 lowercase hex, `/`, `[0-9a-f-]+` with an optional `.spin` or `.p<n>`, `.jpg`), otherwise the answer is 404, and
+  so is a missing file. Responses are `image/jpeg` and cached as immutable, because names are content hashes.
 - The UI asks for what is on screen (high) and the rest of the folder (low), debounced 120 ms. Entry ids stay valid
-  until an index run, so the url map is cleared on `index-done`.
+  until an index run, so the url and extras maps are cleared on `index-done`.
+- **Turning on hover:** a tile showing a mesh still loads its strip after the pointer rests 250 ms and slides it by
+  whole frames (CSS `steps(12)`, 1.2 s a turn). A strip that isn't there yet, or fails, leaves the still. Off under
+  `prefers-reduced-motion`.
 
 ### Carousel slots (`browse.rs`)
 
 Each `Item` carries `composite` (0–4 cells, empty = no composite slot), `pics` and `slot`. The UI's slot list is
 `[composite?] ++ pics`.
 
-- **A leaf** with a thumbnail kind gets `pics = [itself]`.
+- **A leaf** with a thumbnail kind gets `pics = [itself]`. A file with pictures of its own (a 3MF) gets them as more
+  slots in the UI once its thumbnail arrives (`carousel.ts`, `sub` slots): `[still, picture 1…n]`, never a composite,
+  slot 0 (the `.rels` picture) by default. Choosing picture n saves `<file's entry key>#<n>`; `browse.rs` turns that
+  back into `slot = n`, and the UI shows slot 0 until the pictures have arrived.
+- **Scene previews count as meshes** when a folder collects pictures: they fill its carousel and composite only when it
+  has no images.
 - **A folder-like node** collects up to 11 images (`MAX_IMAGES`) and then up to 6 meshes (`MAX_MESHES`), depth-first in
   tree order, deduplicated by entry. The hero goes first if it lives outside the folder. A saved choice that is a deeper
   picture not among them is put first.
@@ -149,7 +181,7 @@ Each `Item` carries `composite` (0–4 cells, empty = no composite slot), `pics`
   needs at least 2 cells.
 - **Default slot:** the hero (the model's hero, or a group's poster, via `hero_key`), else slot 0.
 - **Saved choices** (`select_thumb(node_key, image_key)`, the `selected_thumb` table, keyed by `m:`/`f:` node keys,
-  with `image_key` = an entry key or `composite`) are honoured only while they still exist.
+  with `image_key` = an entry key, `<entry key>#<n>` or `composite`) are honoured only while they still exist.
 - Right-click → **Use as folder thumbnail** on an image or mesh tile saves it for the open folder (`Listing.key`).
 
 ## Drag-out and Extract to…

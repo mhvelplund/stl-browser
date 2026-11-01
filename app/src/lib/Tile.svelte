@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { SvelteMap } from "svelte/reactivity";
   import type { Item, View } from "./api";
-  import { slots, step } from "./carousel";
+  import { slots, step, type Extras } from "./carousel";
   import { press, shouldStart, type Press } from "./dragstart";
   import { mods, NONE, type Mods } from "./selection";
   import { subtitle } from "./items";
@@ -15,6 +15,7 @@
     selected,
     slot,
     urls,
+    extras,
     onSelect,
     onOpen,
     onSlot,
@@ -33,6 +34,8 @@
     /** The slot shown now. */
     slot: number;
     urls: SvelteMap<number, string | null>;
+    /** A file's own extra picture urls by entry id. */
+    extras: Extras;
     /** A click, with Ctrl (or Cmd) and Shift. */
     onSelect: (i: Item, mods: Mods) => void;
     /** Double-click or Enter: a folder opens in the grid, a file in its Windows app. */
@@ -59,7 +62,7 @@
   }
 
   const badge = $derived(item.badge ?? (item.kind === "model" ? "MODEL" : null));
-  const all = $derived(slots(item));
+  const all = $derived(slots(item, extras));
 
   function key(e: KeyboardEvent) {
     if (e.key === "Enter") {
@@ -99,7 +102,7 @@
     oncontextmenu={contextMenu}
   >
     <span class="art">
-      <TileArt slot={all[slot] ?? null} {urls} kind={item.kind} fileKind={item.fileKind} {hover} />
+      <TileArt slot={all[slot] ?? null} {urls} {extras} kind={item.kind} fileKind={item.fileKind} {hover} />
       {#if badge}<span class="badge">{badge}</span>{/if}
       {#if all.length > 1}<span class="count">{slot + 1} / {all.length}</span>{/if}
       <TagDots tags={item.tags} />

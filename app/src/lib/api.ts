@@ -32,7 +32,8 @@ export type Item = {
 
 export type Thumb = { entryId: number; key: string };
 
-export type ThumbReady = { entryId: number; url: string | null; pending: number };
+/** `extras`: more pictures of the file after `url`, for its carousel (a 3MF's plates and photos). */
+export type ThumbReady = { entryId: number; url: string | null; extras: string[]; pending: number };
 
 export type Listing = {
   view: View;
