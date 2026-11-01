@@ -2,6 +2,8 @@
 //! them: Windows OLE virtual files (`windows`), macOS file promises (`macos`). On other targets
 //! only the platform-neutral types and the `promise` writer are built.
 
+pub mod promise;
+
 #[cfg(windows)]
 mod windows;
 
