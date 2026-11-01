@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Placeholder art per item kind until thumbnails arrive (milestone 5).
+  // Art per item kind, for items without a thumbnail (or while it is generating).
   let { kind, fileKind }: { kind: string; fileKind: string | null } = $props();
 
   const shape = $derived.by(() => {

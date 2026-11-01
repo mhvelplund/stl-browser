@@ -2,8 +2,9 @@
 
 The hard part of the app is mapping messy paths to **models**, each with its **preview images**, **variants** and
 **printable files**. This page lists the layouts found in the real collections (`D:\Models\Sci-Fi Collection
-Vol.1` and `Vol.2`), the rule that handles each one, and the resolver that applies the rules. It is the spec for the
-Rust resolver (milestone 3). The Python prototype implemented all of it and measured the results below.
+Vol.1` and `Vol.2`), the rule that handles each one, and the resolver that applies the rules
+(`crates/stl-core/src/resolve/`, with `names.rs`). The resolver is a faithful port of an earlier Python prototype; its
+tests live on as `crates/stl-core/tests/{names,resolve,vtree_models}.rs`.
 
 ## The data
 
@@ -132,7 +133,9 @@ under their own relative paths. Listings stay cached per archive.
 
 ## Results to match (parity baseline)
 
-These are the prototype's numbers on both volumes in one index:
+These are the numbers on both volumes in one index. The Rust resolver matches them exactly, per collection (models,
+groups, both image columns, unattached images, assets by role); any change to the resolver must keep them or explain
+the difference:
 - 346 sources: 342 archives and 4 folders.
 - 48,942 entries: 1,243 nested in Vol.1.
 - 1,132 models: Vol.1 447, Vol.2 685.
@@ -151,20 +154,14 @@ These are the prototype's numbers on both volumes in one index:
   - The rest are 11 Studio, 15 Model Collection and 2 Warlord-bust models.
 - **Targets:** under 5% of images left unattached, and every archive yields ≥1 model.
 
-### The Rust port's results (milestone 3)
-
-`stlx parity <prototype.db>` compares the resolved tables with the prototype's.
-
-- On Vol.1 + Vol.2, every number above matches exactly, per collection: models, groups, both image columns, unattached
-  images, and assets by role.
-- All the spot checks below pass, with the same values as the prototype.
 - Group counts are 64 (Vol.1) and 60 (Vol.2).
-- The XENOBUGS group holds 25 units, all with their own picture. The "33 of 34" in the spot checks below was an
-  estimate.
+
+`stlx parity <other.db>` compares the resolved tables of the current index with another index DB (opened read-only),
+per collection, and runs the spot checks. Keep a copy of an index made before a resolver change and compare against it.
 
 ### Spot checks
 
-These must hold in the Rust port. The real queries are tied to a real collection, so they aren't in the repo:
+These must hold. The real queries are tied to a real collection, so they aren't in the repo:
 `stlx parity` reads them from `spot-checks.json` (a JSON array of `{"name", "sql"}`) in the app dir and skips them if
 the file is missing. The names below are stand-ins for the real ones.
 - `Northern Trikers`: 1 model, 2 variants, 6 images.
@@ -176,7 +173,7 @@ the file is missing. The names below are stand-ins for the real ones.
 - `RoK AGG/CCW/COM`: `''` + supported, own picture.
 - The Warlords: pictures matched by name; Aurelion is hollow + solid.
 - `SF Empress final` ← `SF_Empress_fina.jpg`.
-- XENOBUGS: poster on the XENOBUGS group, and 33 of 34 units have their own picture.
+- XENOBUGS: poster on the XENOBUGS group, and all 25 units have their own picture.
 - `Archivist Zarvos` ×2, editions 5E/8E.
 - Terrain names such as `Ancient Alien Pylon`.
 
@@ -193,6 +190,25 @@ These are accepted:
 
 ## Adding a pattern
 
-1. A new layout gets a unit test built from the real path.
+1. A new layout gets a unit test built from the real path (with invented names).
 2. Add a row here.
 3. Re-index and compare against the baseline above, watching for regressions in "without own image".
+
+## Changing the resolver
+
+The resolver was ported branch by branch from Python, and the ported tests depend on these details. Keep them:
+
+- **Count chars, not bytes.** Python string lengths, indexing and slicing count characters (`03. ОРКИ`, Cyrillic member
+  names). Use `chars().count()` and char-boundary slicing. `regex` match offsets are bytes; convert them where a char
+  position is needed (`_unsquash_prefix`).
+- **Insertion order.** Tree children use `IndexMap`, and walks are pre-order in insertion order. Group and model
+  creation order is part of the result.
+- **Stable sorts.** Use stable sorts with reversed comparators for "reverse" sorts, never `sort_unstable`.
+- **Digits:** `is_digits` = non-empty and all ASCII digits (Python `str.isdigit()` as used).
+- **No lookahead in `regex`.** The catalog-id pattern is `^\s*(\d{3,4})(?:\s*-\s*\d{3,4})?[\s_\-.]+`; a full match is
+  anchored as `^(?:…)$`. Regexes are `LazyLock<Regex>` statics.
+- **Ties:** "most common" picks the first inserted key.
+- **The resolution unit is (root, collection).** `resolve_collection` deletes and re-inserts one unit's resolved rows in
+  one transaction. The resolver's `source_name` is the collection after the first `/`. Archive sources prefix their
+  entries with `coll_path + "/"`.
+- **A collection that resolves to a single model** has no root group; the model sits directly in its collection folder.

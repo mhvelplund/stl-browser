@@ -21,16 +21,18 @@ Built with Rust and Tauri 2, with a Svelte 5 + TypeScript UI. **Windows only.**
   archives opened like folders.
 - **Thumbnails:** images are scaled, and STL/OBJ meshes are rendered on the CPU. Folders get a picture carousel.
 - **Drag-out and "Extract to…":** drag a model, file or folder straight out of an archive into Explorer.
+- **Search and tags:** search names below the open folder (Free, Word or Regexp), tag items yourself or use the
+  generated support, scale, creator and edition tags, and search with `tag:` terms.
+- **Multi-select:** select with Ctrl/Shift-click or a rubber band, then tag, drag or extract the selection together.
 
-Tags, search and filters are planned. See [`docs/index.md`](docs/index.md) for the milestone status.
+See [`docs/known-issues.md`](docs/known-issues.md) for known issues and ideas not built yet.
 
 ## Download
 
-
-Download the standalone executable (`stl-browser-<version>.exe`) or the installer (`stl-browser_<version>_x64-setup.exe`)
-from the [latest release]. Both need Windows 10 or 11 with
-the WebView2 runtime, which Windows 11 already has. The binaries aren't code-signed, so Windows SmartScreen may warn you
-the first time you start it.
+Download the standalone executable (`stl-browser-<version>.exe`) or the installer
+(`stl-browser_<version>_x64-setup.exe`) from the [latest release]. Both need Windows 10 or 11 with the WebView2 runtime,
+which Windows 11 already has. The binaries aren't code-signed, so Windows SmartScreen may warn you the first time you
+start it.
 
 To build from source instead, read on.
 
@@ -121,9 +123,9 @@ cargo run --release -p stl-index --bin stlx -- add <dir>   # dev CLI: add, index
 
 Design documents:
 
-- [`docs/index.md`](docs/index.md): status, architecture and design decisions. Start here.
-- [`docs/superpowers/specs/2026-10-27-stl-browser-design.md`](docs/superpowers/specs/2026-10-27-stl-browser-design.md):
-  the design spec.
+- [`docs/index.md`](docs/index.md): architecture, data on disk, invariants and testing. Start here.
+- [`docs/features.md`](docs/features.md): how each feature works.
+- [`docs/ui.md`](docs/ui.md): the UI's layout, components and theme.
 - [`docs/archive-patterns.md`](docs/archive-patterns.md): archive layout patterns and the model resolver.
 - [`docs/virtual-tree.md`](docs/virtual-tree.md): the Models and Files views and their naming rules.
 
