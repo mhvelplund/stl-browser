@@ -45,6 +45,7 @@
   } = $props();
 
   let pressed: Press = null;
+  let hover = $state(false);
 
   function pointerMove(e: PointerEvent) {
     if (!shouldStart(pressed, e.clientX, e.clientY, e.buttons)) return;
@@ -74,7 +75,14 @@
   }
 </script>
 
-<div class="tile" class:selected class:locked={item.kind === "locked"}>
+<div
+  class="tile"
+  class:selected
+  class:locked={item.kind === "locked"}
+  role="presentation"
+  onpointerenter={() => (hover = true)}
+  onpointerleave={() => (hover = false)}
+>
   <button
     type="button"
     class="main"
@@ -91,7 +99,7 @@
     oncontextmenu={contextMenu}
   >
     <span class="art">
-      <TileArt slot={all[slot] ?? null} {urls} kind={item.kind} fileKind={item.fileKind} />
+      <TileArt slot={all[slot] ?? null} {urls} kind={item.kind} fileKind={item.fileKind} {hover} />
       {#if badge}<span class="badge">{badge}</span>{/if}
       {#if all.length > 1}<span class="count">{slot + 1} / {all.length}</span>{/if}
       <TagDots tags={item.tags} />

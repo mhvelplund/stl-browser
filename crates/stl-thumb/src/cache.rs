@@ -27,12 +27,24 @@ pub fn cache_rel(location: &str, content: &str) -> String {
     format!("{location}/{content}.jpg")
 }
 
-/// Only `<16 lowercase hex>/<lowercase hex and dashes>.jpg` names a cache file (so rows from
-/// the earlier WebP cache count as stale and are regenerated).
+/// The turntable strip next to a mesh's still: `<location>/<content>.spin.jpg`.
+pub fn spin_rel(rel: &str) -> String {
+    format!("{}.spin.jpg", rel.strip_suffix(".jpg").unwrap_or(rel))
+}
+
+/// True when the cache holds everything a file of this kind gets: the still, and for a mesh
+/// (`spin`) its turntable strip too.
+pub fn is_complete(thumbs_dir: &std::path::Path, rel: &str, spin: bool) -> bool {
+    thumbs_dir.join(rel).is_file() && (!spin || thumbs_dir.join(spin_rel(rel)).is_file())
+}
+
+/// Only `<16 lowercase hex>/<lowercase hex and dashes>[.spin].jpg` names a cache file (so rows
+/// from the earlier WebP cache count as stale and are regenerated).
 pub fn is_valid_rel(rel: &str) -> bool {
     let lower_hex = |c: char| c.is_ascii_digit() || ('a'..='f').contains(&c);
     let Some((dir, file)) = rel.split_once('/') else { return false };
     let Some(stem) = file.strip_suffix(".jpg") else { return false };
+    let stem = stem.strip_suffix(".spin").unwrap_or(stem);
     dir.len() == 16 && dir.chars().all(lower_hex) && !stem.is_empty() && stem.chars().all(|c| lower_hex(c) || c == '-')
 }
 
@@ -57,7 +69,12 @@ mod tests {
     fn cache_rel_is_validated() {
         assert!(is_valid_rel("0123456789abcdef/1a2b3c4d-1234.jpg"));
         assert!(is_valid_rel("0123456789abcdef/0123456789abcdef0123456789abcdef.jpg"));
+        assert!(is_valid_rel("0123456789abcdef/1a2b3c4d-1234.spin.jpg"));
+        assert_eq!(spin_rel("0123456789abcdef/1a2b3c4d-1234.jpg"), "0123456789abcdef/1a2b3c4d-1234.spin.jpg");
         for bad in [
+            "0123456789abcdef/a.spin.spin.jpg",
+            "0123456789abcdef/.spin.jpg",
+            "0123456789abcdef/a.other.jpg",
             "../index.db",
             "0123456789abcdef/../../x.jpg",
             "C:\\x.jpg",

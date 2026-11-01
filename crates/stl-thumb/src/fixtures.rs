@@ -42,6 +42,29 @@ pub fn png(w: u32, h: u32) -> Vec<u8> {
     out
 }
 
+/// A Lychee-style scene: an asar container holding `files` (name, bytes) in order.
+pub fn lys(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut table = serde_json::Map::new();
+    let mut offset = 0usize;
+    for (name, data) in files {
+        table.insert(name.to_string(), serde_json::json!({ "size": data.len(), "offset": offset.to_string() }));
+        offset += data.len();
+    }
+    let json = serde_json::to_vec(&serde_json::json!({ "version": "3.1.0", "mangoFiles": table })).unwrap();
+    let padded = json.len().div_ceil(4) * 4;
+    let (pickle, payload) = (padded as u32 + 8, padded as u32 + 4);
+    let mut out = Vec::new();
+    for w in [4, pickle, payload, json.len() as u32] {
+        out.extend(w.to_le_bytes());
+    }
+    out.extend(&json);
+    out.resize(16 + padded, 0);
+    for (_, data) in files {
+        out.extend(*data);
+    }
+    out
+}
+
 /// A zip with the given members.
 pub fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
     let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));

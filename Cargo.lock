@@ -3755,6 +3755,7 @@ version = "1.1.0"
 dependencies = [
  "blake3",
  "image",
+ "serde_json",
  "stl-scan",
  "stl_io",
  "tempfile",

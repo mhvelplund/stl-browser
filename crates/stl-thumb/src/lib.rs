@@ -1,8 +1,10 @@
-//! Thumbnails: cache naming, image scaling, STL/OBJ rendering, batch generation and the job queue.
+//! Thumbnails: cache naming, image scaling, STL/OBJ rendering (a still and a turntable strip),
+//! embedded 3MF/LYS previews, batch generation and the job queue.
 pub mod cache;
 pub mod generate;
 pub mod image;
 pub mod mesh;
+pub mod preview;
 pub mod queue;
 pub mod raster;
 
@@ -15,7 +17,18 @@ pub const THUMB_SIZE: u32 = 256;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbKind {
     Image,
+    /// Rendered from triangles, with a turntable strip for hovering.
     Mesh,
+    /// A picture the file carries itself (3MF and LYS scenes).
+    Preview,
+}
+
+/// Frames in a mesh's turntable strip (`cache::spin_rel`), evenly spaced around a full turn.
+pub const SPIN_FRAMES: u32 = 12;
+
+/// True when a file of this name gets a turntable strip next to its still thumbnail.
+pub fn has_spin(name: &str) -> bool {
+    thumb_kind(name) == Some(ThumbKind::Mesh)
 }
 
 /// Which files get a thumbnail, by extension.
@@ -33,6 +46,7 @@ pub fn thumb_kind(name: &str) -> Option<ThumbKind> {
     match ext.to_ascii_lowercase().as_str() {
         "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp" => Some(ThumbKind::Image),
         "stl" | "obj" => Some(ThumbKind::Mesh),
+        "3mf" | "lys" => Some(ThumbKind::Preview),
         _ => None,
     }
 }
@@ -46,9 +60,20 @@ mod tests {
         assert_eq!(thumb_kind("A/B.JPG"), Some(ThumbKind::Image));
         assert_eq!(thumb_kind("x.stl"), Some(ThumbKind::Mesh));
         assert_eq!(thumb_kind("x.obj"), Some(ThumbKind::Mesh));
-        assert_eq!(thumb_kind("x.lys"), None);
-        assert_eq!(thumb_kind("x.3mf"), None);
+        assert_eq!(thumb_kind("x.LYS"), Some(ThumbKind::Preview));
+        assert_eq!(thumb_kind("a/x.3mf"), Some(ThumbKind::Preview));
+        assert_eq!(thumb_kind("x.lyt"), None);
         assert_eq!(thumb_kind("noext"), None);
+    }
+
+    #[test]
+    fn only_meshes_spin() {
+        assert!(has_spin("a/b.STL"));
+        assert!(has_spin("b.obj"));
+        assert!(!has_spin("b.3mf"));
+        assert!(!has_spin("b.lys"));
+        assert!(!has_spin("b.png"));
+        assert!(!has_spin("__MACOSX/._b.stl"));
     }
 
     #[test]

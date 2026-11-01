@@ -1,9 +1,10 @@
 //! A small CPU rasterizer: orthographic 3/4 isometric view fitted to the bounding box, z-buffer,
-//! flat two-sided grey shading, rendered at 2× and box-downsampled for anti-aliasing.
-use ::image::{Rgba, RgbaImage};
+//! flat two-sided grey shading, rendered at 2× and box-downsampled for anti-aliasing. Also a
+//! turntable strip of the same view stepping around Z.
+use ::image::{Rgba, RgbaImage, imageops};
 
-use crate::THUMB_SIZE;
 use crate::mesh::Tri;
+use crate::{SPIN_FRAMES, THUMB_SIZE};
 
 type V3 = [f32; 3];
 
@@ -24,23 +25,45 @@ fn mix(a: V3, wa: f32, b: V3, wb: f32) -> V3 {
     [a[0] * wa + b[0] * wb, a[1] * wa + b[1] * wb, a[2] * wa + b[2] * wb]
 }
 
-/// Render `tris` (Z up) to a `THUMB_SIZE` square with a transparent background.
+/// The still's heading: the camera looks from (1, -1, 1), 45° around Z and 35.264° down.
+const ISO_YAW: f32 = -45.0;
+
+/// An orthographic camera circling Z at the isometric pitch, with its key light.
+struct Camera {
+    right: V3,
+    up: V3,
+    to_cam: V3,
+    light: V3,
+}
+
+impl Camera {
+    /// The camera at `yaw` degrees around Z (`ISO_YAW` is the still thumbnail's view).
+    fn at(yaw: f32) -> Camera {
+        let (s, c) = yaw.to_radians().sin_cos();
+        let to_cam = norm([c, s, 1.0]);
+        let right = norm(cross([-to_cam[0], -to_cam[1], -to_cam[2]], [0.0, 0.0, 1.0]));
+        let up = cross(right, [-to_cam[0], -to_cam[1], -to_cam[2]]);
+        let (s25, c25) = 25f32.to_radians().sin_cos();
+        let light = norm(mix(to_cam, c25, norm(sub(up, right)), s25));
+        Camera { right, up, to_cam, light }
+    }
+
+    /// Screen x (right), screen y (down) and depth (towards the camera).
+    fn proj(&self, v: V3) -> V3 {
+        [dot(v, self.right), -dot(v, self.up), dot(v, self.to_cam)]
+    }
+}
+
+/// Render `tris` (Z up) to a `THUMB_SIZE` square with a transparent background, fitted tightly.
 pub fn render(tris: &[Tri]) -> RgbaImage {
     const SS: usize = 2;
-    let n = THUMB_SIZE as usize * SS;
-    // isometric camera: looking from (1, -1, 1), i.e. 45° around Z and 35.264° down
-    let to_cam = norm([1.0, -1.0, 1.0]);
-    let right = norm(cross([-to_cam[0], -to_cam[1], -to_cam[2]], [0.0, 0.0, 1.0]));
-    let up = cross(right, [-to_cam[0], -to_cam[1], -to_cam[2]]);
-    let (s25, c25) = 25f32.to_radians().sin_cos();
-    let light = norm(mix(to_cam, c25, norm(sub(up, right)), s25));
-
-    // project, and fit the projected bounds into the square with a 6 % margin each side
-    let proj = |v: V3| [dot(v, right), -dot(v, up), dot(v, to_cam)];
+    let n = (THUMB_SIZE as usize * SS) as f32;
+    let cam = Camera::at(ISO_YAW);
+    // fit the projected bounds into the square with a 6 % margin each side
     let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
     for t in tris {
         for &v in t {
-            let p = proj(v);
+            let p = cam.proj(v);
             for k in 0..2 {
                 lo[k] = lo[k].min(p[k]);
                 hi[k] = hi[k].max(p[k]);
@@ -48,9 +71,50 @@ pub fn render(tris: &[Tri]) -> RgbaImage {
         }
     }
     let extent = (hi[0] - lo[0]).max(hi[1] - lo[1]);
-    let scale = if extent > f32::EPSILON { n as f32 * 0.88 / extent } else { 1.0 };
-    let off = [n as f32 / 2.0 - (lo[0] + hi[0]) / 2.0 * scale, n as f32 / 2.0 - (lo[1] + hi[1]) / 2.0 * scale];
+    let scale = if extent > f32::EPSILON { n * 0.88 / extent } else { 1.0 };
+    let off = [n / 2.0 - (lo[0] + hi[0]) / 2.0 * scale, n / 2.0 - (lo[1] + hi[1]) / 2.0 * scale];
+    raster(tris, &cam, SS, scale, off)
+}
 
+/// A turntable strip: `SPIN_FRAMES` squares side by side, the camera stepping evenly around Z
+/// starting at the still's view. Every frame shares one scale and centre (the bounding box's
+/// middle), so the model turns in place without growing or shrinking. Frames skip
+/// supersampling: they only show while the pointer rests on a tile.
+pub fn render_spin(tris: &[Tri]) -> RgbaImage {
+    let frames = SPIN_FRAMES as usize;
+    let cams: Vec<Camera> = (0..frames).map(|k| Camera::at(ISO_YAW - k as f32 * 360.0 / frames as f32)).collect();
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+    for &v in tris.iter().flatten() {
+        for k in 0..3 {
+            lo[k] = lo[k].min(v[k]);
+            hi[k] = hi[k].max(v[k]);
+        }
+    }
+    let centre: V3 = std::array::from_fn(|k| if tris.is_empty() { 0.0 } else { (lo[k] + hi[k]) / 2.0 });
+    // the largest distance from the centre on screen, over every frame
+    let mut half = 0f32;
+    for cam in &cams {
+        for &v in tris.iter().flatten() {
+            let p = cam.proj(sub(v, centre));
+            half = half.max(p[0].abs()).max(p[1].abs());
+        }
+    }
+    let n = THUMB_SIZE as f32;
+    let scale = if half > f32::EPSILON { n * 0.88 / (2.0 * half) } else { 1.0 };
+    let mut strip = RgbaImage::new(THUMB_SIZE * SPIN_FRAMES, THUMB_SIZE);
+    for (k, cam) in cams.iter().enumerate() {
+        let c = cam.proj(centre);
+        let frame = raster(tris, cam, 1, scale, [n / 2.0 - c[0] * scale, n / 2.0 - c[1] * scale]);
+        imageops::replace(&mut strip, &frame, (k as u32 * THUMB_SIZE) as i64, 0);
+    }
+    strip
+}
+
+/// Z-buffer `tris` through `cam` at `ss`× supersampling (`scale` and `off` in supersampled
+/// pixels), then box-downsample to a `THUMB_SIZE` square.
+fn raster(tris: &[Tri], cam: &Camera, ss: usize, scale: f32, off: [f32; 2]) -> RgbaImage {
+    let n = THUMB_SIZE as usize * ss;
+    let (light, proj) = (cam.light, |v: V3| cam.proj(v));
     let mut depth = vec![f32::MIN; n * n];
     let mut grey = vec![0u8; n * n];
     for t in tris {
@@ -89,9 +153,9 @@ pub fn render(tris: &[Tri]) -> RgbaImage {
     let mut out = RgbaImage::new(THUMB_SIZE, THUMB_SIZE);
     for (x, y, px) in out.enumerate_pixels_mut() {
         let (mut covered, mut sum) = (0u32, 0u32);
-        for dy in 0..SS {
-            for dx in 0..SS {
-                let i = (y as usize * SS + dy) * n + x as usize * SS + dx;
+        for dy in 0..ss {
+            for dx in 0..ss {
+                let i = (y as usize * ss + dy) * n + x as usize * ss + dx;
                 if depth[i] > f32::MIN {
                     covered += 1;
                     sum += grey[i] as u32;
@@ -100,7 +164,7 @@ pub fn render(tris: &[Tri]) -> RgbaImage {
         }
         if covered > 0 {
             let g = (sum / covered) as u8;
-            *px = Rgba([g, g, g, (covered * 255 / (SS * SS) as u32) as u8]);
+            *px = Rgba([g, g, g, (covered * 255 / (ss * ss) as u32) as u8]);
         }
     }
     out
@@ -148,5 +212,44 @@ mod tests {
         let point = vec![[[1.0, 1.0, 1.0]; 3]];
         let _ = render(&point);
         let _ = render(&[]);
+        let _ = render_spin(&flat);
+        let _ = render_spin(&point);
+        let _ = render_spin(&[]);
+    }
+
+    /// Covered pixels and the covered bounding box `[x0, y0, x1, y1]` of frame `k` of a strip.
+    fn frame_stats(strip: &RgbaImage, k: u32) -> (u32, [u32; 4]) {
+        let (mut n, mut bb) = (0, [u32::MAX, u32::MAX, 0, 0]);
+        for y in 0..THUMB_SIZE {
+            for x in 0..THUMB_SIZE {
+                if strip.get_pixel(k * THUMB_SIZE + x, y)[3] > 128 {
+                    n += 1;
+                    bb = [bb[0].min(x), bb[1].min(y), bb[2].max(x), bb[3].max(y)];
+                }
+            }
+        }
+        (n, bb)
+    }
+
+    #[test]
+    fn spin_strip_turns_in_place() {
+        // a tall slab off the origin: its outline changes as it turns, its height must not
+        let tris: Vec<_> = cube(1.0).iter().map(|t| t.map(|v| [v[0] * 4.0 + 100.0, v[1] - 50.0, v[2] * 6.0])).collect();
+        let strip = render_spin(&tris);
+        assert_eq!(strip.dimensions(), (THUMB_SIZE * SPIN_FRAMES, THUMB_SIZE));
+        let stats: Vec<_> = (0..SPIN_FRAMES).map(|k| frame_stats(&strip, k)).collect();
+        for (k, (n, bb)) in stats.iter().enumerate() {
+            assert!(*n > 256 * 256 / 20, "frame {k} nearly empty: {n}");
+            // inside the square with a margin, horizontally centred
+            assert!(bb[0] > 4 && bb[1] > 4 && bb[2] < 251 && bb[3] < 251, "frame {k} {bb:?}");
+            let cx = (bb[0] + bb[2]) as f32 / 2.0;
+            assert!((cx - 128.0).abs() < 6.0, "frame {k} centre {cx}");
+        }
+        // the same scale throughout: the vertical edges keep their length
+        let heights: Vec<u32> = stats.iter().map(|(_, bb)| bb[3] - bb[1]).collect();
+        let (lo, hi) = (heights.iter().min().unwrap(), heights.iter().max().unwrap());
+        assert!(hi - lo <= hi / 4, "{heights:?}");
+        // and it does turn
+        assert_ne!(stats[0].1, stats[2].1);
     }
 }

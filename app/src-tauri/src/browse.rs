@@ -326,7 +326,8 @@ fn nested(t: &Tree, id: NodeId, selected: &HashMap<String, String>) -> (Vec<Thum
             Some((kind, th)) => {
                 let (list, cap) = match kind {
                     ThumbKind::Image => (&mut images, MAX_IMAGES),
-                    ThumbKind::Mesh => (&mut meshes, MAX_MESHES),
+                    // a scene's own preview pictures the model like a render does
+                    ThumbKind::Mesh | ThumbKind::Preview => (&mut meshes, MAX_MESHES),
                 };
                 if list.len() < cap && seen.insert(th.entry_id) {
                     list.push(th);

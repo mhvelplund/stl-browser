@@ -4,13 +4,22 @@
   import type { SvelteMap } from "svelte/reactivity";
   import type { Slot } from "./carousel";
   import KindIcon from "./KindIcon.svelte";
+  import { SPIN_DELAY_MS, SPIN_FRAMES, spinUrl } from "./spin";
 
   let {
     slot,
     urls,
     kind,
     fileKind,
-  }: { slot: Slot | null; urls: SvelteMap<number, string | null>; kind: string; fileKind: string | null } = $props();
+    hover = false,
+  }: {
+    slot: Slot | null;
+    urls: SvelteMap<number, string | null>;
+    kind: string;
+    fileKind: string | null;
+    /** The pointer is on the tile: a mesh thumbnail turns. */
+    hover?: boolean;
+  } = $props();
 
   /** `undefined` = not known yet, `null` = no thumbnail. */
   const url = (id: number) => urls.get(id);
@@ -18,6 +27,28 @@
     slot !== null && (slot.kind === "pic" ? url(slot.thumb.entryId) === undefined : slot.cells.some((c) => url(c.entryId) === undefined)),
   );
   const single = $derived(slot?.kind === "pic" ? url(slot.thumb.entryId) : null);
+
+  // after a short rest, load the strip; it plays once loaded (a strip that isn't there yet, or
+  // a thumbnail without one, leaves the still)
+  const strip = $derived(spinUrl(slot, single));
+  let playing: string | null = $state(null);
+  $effect(() => {
+    const s = strip;
+    playing = null;
+    if (!hover || !s) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      const img = new Image();
+      img.onload = () => {
+        if (live) playing = s;
+      };
+      img.src = s;
+    }, SPIN_DELAY_MS);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  });
 </script>
 
 {#if slot?.kind === "composite"}
@@ -33,6 +64,9 @@
   </span>
 {:else if single}
   <img class="one" src={single} alt="" draggable="false" decoding="async" />
+  {#if playing}
+    <span class="spin" style:--frames={SPIN_FRAMES}><img src={playing} alt="" draggable="false" /></span>
+  {/if}
 {:else if !pending}
   <KindIcon {kind} {fileKind} />
 {/if}
@@ -85,9 +119,30 @@
       background: color-mix(in srgb, var(--ctl-hover) 92%, transparent);
     }
   }
+  /* the strip's frames sit side by side; sliding it by whole frames turns the model */
+  .spin {
+    position: absolute;
+    inset: 6px;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .spin img {
+    inset: 0 auto auto 0;
+    width: calc(var(--frames) * 100%);
+    max-width: none;
+    animation: turn 1.2s steps(var(--frames)) infinite;
+  }
+  @keyframes turn {
+    to {
+      transform: translateX(-100%);
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     .skel {
       animation: none;
+    }
+    .spin {
+      display: none;
     }
   }
 </style>

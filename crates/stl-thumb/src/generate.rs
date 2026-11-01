@@ -8,14 +8,19 @@ pub use stl_scan::extract::SourceKind;
 use stl_scan::ScanError;
 use stl_scan::extract::extract_many_entries;
 
-use crate::cache::{cache_rel, content_hash, content_name, location_dir};
+use ::image::RgbaImage;
+
+use crate::cache::{cache_rel, content_hash, content_name, is_complete, location_dir, spin_rel};
 use crate::image::{encode_jpeg, image_thumb};
 use crate::mesh::load_mesh;
-use crate::raster::render;
-use crate::{ThumbKind, thumb_kind};
+use crate::preview::preview_bytes;
+use crate::raster::{render, render_spin};
+use crate::{ThumbKind, has_spin, thumb_kind};
 
 const MAX_IMAGE: u64 = 64 * 1024 * 1024;
 const MAX_MESH: u64 = 256 * 1024 * 1024;
+/// Scenes are read whole for the small picture inside; the biggest real ones are ~350 MB.
+const MAX_PREVIEW: u64 = 512 * 1024 * 1024;
 
 /// One file to make a thumbnail of, as the index knows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +103,7 @@ fn generate_with(thumbs_dir: &Path, jobs: &[Job], done: &mut dyn FnMut(&Job, Out
         let cap = match thumb_kind(job.name()) {
             Some(ThumbKind::Image) => MAX_IMAGE,
             Some(ThumbKind::Mesh) => MAX_MESH,
+            Some(ThumbKind::Preview) => MAX_PREVIEW,
             None => {
                 done(job, Err(Failure::Bad("no thumbnail for this file type".into())));
                 continue;
@@ -110,7 +116,7 @@ fn generate_with(thumbs_dir: &Path, jobs: &[Job], done: &mut dyn FnMut(&Job, Out
         // with a stored CRC the cache name is known without reading the file
         if let Some(content) = content_name(&job.crc, job.size) {
             let rel = cache_rel(&location_dir(&job.source_path, &job.chain), &content);
-            if thumbs_dir.join(&rel).is_file() {
+            if is_complete(thumbs_dir, &rel, has_spin(job.name())) {
                 done(job, Ok(rel));
                 continue;
             }
@@ -147,37 +153,59 @@ fn generate_with(thumbs_dir: &Path, jobs: &[Job], done: &mut dyn FnMut(&Job, Out
     }
 }
 
-/// Render one file's thumbnail into the cache (unless it is already there). A decoder that
-/// panics on a corrupt file only fails this job.
+/// Render one file's thumbnail into the cache (unless it is already there), and for a mesh its
+/// turntable strip. A decoder that panics on a corrupt file only fails this job; a strip that
+/// fails leaves the still alone (the tile just doesn't turn).
 fn make(thumbs_dir: &Path, job: &Job, bytes: &[u8]) -> Outcome {
     let content = content_name(&job.crc, job.size).unwrap_or_else(|| content_hash(bytes));
     let rel = cache_rel(&location_dir(&job.source_path, &job.chain), &content);
-    let path = thumbs_dir.join(&rel);
-    if path.is_file() {
+    let (path, spin_path) = (thumbs_dir.join(&rel), thumbs_dir.join(spin_rel(&rel)));
+    let kind = thumb_kind(job.name());
+    let have_still = path.is_file();
+    if have_still && (kind != Some(ThumbKind::Mesh) || spin_path.is_file()) {
         return Ok(rel);
     }
-    let img = catch_unwind(AssertUnwindSafe(|| match thumb_kind(job.name()) {
-        Some(ThumbKind::Image) => image_thumb(bytes),
-        Some(ThumbKind::Mesh) => load_mesh(job.name(), bytes).map(|t| render(&t)),
-        None => Err("no thumbnail for this file type".into()),
+    let decoded = catch_unwind(AssertUnwindSafe(|| -> Result<(Option<RgbaImage>, Vec<crate::mesh::Tri>), String> {
+        match kind {
+            Some(ThumbKind::Image) => Ok((Some(image_thumb(bytes)?), Vec::new())),
+            Some(ThumbKind::Preview) => Ok((Some(image_thumb(&preview_bytes(job.name(), bytes)?)?), Vec::new())),
+            Some(ThumbKind::Mesh) => {
+                let tris = load_mesh(job.name(), bytes)?;
+                Ok(((!have_still).then(|| render(&tris)), tris))
+            }
+            None => Err("no thumbnail for this file type".into()),
+        }
     }))
     .unwrap_or_else(|_| Err("internal error while decoding".into()))
     .map_err(Failure::Bad)?;
-    let jpg = encode_jpeg(&img).map_err(Failure::Bad)?;
+    let (still, tris) = decoded;
+    if let Some(img) = still {
+        write_atomic(&path, &encode_jpeg(&img).map_err(Failure::Bad)?, job.entry_id)?;
+    }
+    if !tris.is_empty() {
+        let strip = catch_unwind(AssertUnwindSafe(|| encode_jpeg(&render_spin(&tris)))).unwrap_or_else(|_| Err("panic".into()));
+        if let Ok(jpg) = strip {
+            let _ = write_atomic(&spin_path, &jpg, job.entry_id);
+        }
+    }
+    Ok(rel)
+}
+
+/// Write a cache file via a temp file and a rename, so a reader never sees half a file.
+fn write_atomic(path: &Path, bytes: &[u8], entry_id: i64) -> Result<(), Failure> {
     // writing the cache can fail for reasons that pass (disk full, a locked folder)
     let io = |e: std::io::Error| Failure::Unavailable(e.to_string());
     std::fs::create_dir_all(path.parent().expect("cache_rel has a directory")).map_err(io)?;
-    // write then rename, so a reader never sees half a file
-    let tmp = path.with_extension(format!("{}.tmp", job.entry_id));
-    std::fs::write(&tmp, &jpg).map_err(io)?;
-    if let Err(e) = std::fs::rename(&tmp, &path) {
+    let tmp = path.with_extension(format!("{entry_id}.tmp"));
+    std::fs::write(&tmp, bytes).map_err(io)?;
+    if let Err(e) = std::fs::rename(&tmp, path) {
         let _ = std::fs::remove_file(&tmp);
         // another worker may have written the same file meanwhile
         if !path.is_file() {
             return Err(io(e));
         }
     }
-    Ok(rel)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -241,6 +269,62 @@ mod tests {
             assert_eq!(again[&j.entry_id], out[&j.entry_id]);
             assert_eq!(std::fs::metadata(thumbs.join(again[&j.entry_id].as_ref().unwrap())).unwrap().modified().unwrap(), m);
         }
+    }
+
+    #[test]
+    fn meshes_get_a_turntable_strip_images_do_not() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("kit.zip");
+        std::fs::write(&p, zip(&[("x.png", &png(8, 8)), ("y.stl", &stl_bytes(&cube(2.0)))])).unwrap();
+        let jobs = archive_jobs(&p);
+        let thumbs = tmp.path().join("thumbs");
+        let out = run(&thumbs, &jobs);
+        for j in &jobs {
+            let spin = thumbs.join(spin_rel(out[&j.entry_id].as_ref().unwrap()));
+            if j.chain[0].ends_with(".stl") {
+                let img = ::image::open(&spin).unwrap();
+                assert_eq!((img.width(), img.height()), (256 * crate::SPIN_FRAMES, 256));
+            } else {
+                assert!(!spin.exists());
+            }
+        }
+    }
+
+    #[test]
+    fn a_missing_strip_is_made_without_touching_the_still() {
+        // thumbnails cached before strips existed get one the next time they are asked for
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("kit.zip");
+        std::fs::write(&p, zip(&[("y.stl", &stl_bytes(&cube(2.0)))])).unwrap();
+        let jobs = archive_jobs(&p);
+        let thumbs = tmp.path().join("thumbs");
+        let rel = run(&thumbs, &jobs)[&1].clone().unwrap();
+        std::fs::remove_file(thumbs.join(spin_rel(&rel))).unwrap();
+        std::fs::write(thumbs.join(&rel), b"old still").unwrap();
+        assert_eq!(run(&thumbs, &jobs)[&1].as_ref().unwrap(), &rel);
+        assert!(thumbs.join(spin_rel(&rel)).is_file());
+        assert_eq!(std::fs::read(thumbs.join(&rel)).unwrap(), b"old still");
+    }
+
+    #[test]
+    fn scenes_use_their_embedded_preview() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("kit.zip");
+        let scene = crate::fixtures::lys(&[("m.bin", b"mesh"), ("preview.png", &png(64, 64))]);
+        let project = zip(&[("Metadata/thumbnail.png", &png(40, 20))]);
+        std::fs::write(&p, zip(&[("a.lys", &scene), ("b.3mf", &project), ("c.lys", b"junk")])).unwrap();
+        let jobs = archive_jobs(&p);
+        let thumbs = tmp.path().join("thumbs");
+        let out = run(&thumbs, &jobs);
+        let by_name = |n: &str| out[&jobs.iter().find(|j| j.chain[0] == n).unwrap().entry_id].clone();
+        let dims = |rel: String| {
+            assert!(!thumbs.join(spin_rel(&rel)).exists());
+            let img = ::image::open(thumbs.join(rel)).unwrap();
+            (img.width(), img.height())
+        };
+        assert_eq!(dims(by_name("a.lys").unwrap()), (256, 256));
+        assert_eq!(dims(by_name("b.3mf").unwrap()), (256, 128));
+        assert!(matches!(by_name("c.lys"), Err(Failure::Bad(_))));
     }
 
     #[test]
