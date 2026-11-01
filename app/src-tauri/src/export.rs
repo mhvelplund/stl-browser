@@ -253,7 +253,7 @@ pub struct DragInfo {
     pub skipped: usize,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod drag {
     use std::sync::{Arc, Mutex};
 
@@ -262,7 +262,7 @@ mod drag {
     /// Temp-disk room for files read ahead from 7z and RAR archives during one drag.
     const READ_AHEAD: u64 = 2 << 30;
 
-    /// A drag's files, extracted on Explorer's request.
+    /// A drag's files, extracted on the drop target's request.
     pub struct DragContents(Mutex<FileServer>);
 
     impl DragContents {
@@ -293,31 +293,49 @@ mod drag {
 /// Start dragging `targets` (items of `view`) out of the window. The drag runs
 /// on the main thread; it is skipped if the mouse button was released in the meantime.
 #[tauri::command(async)]
-pub fn begin_drag(app: AppHandle, state: tauri::State<'_, AppState>, view: View, targets: Vec<Target>) -> Result<DragInfo, String> {
+pub fn begin_drag(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>, view: View, targets: Vec<Target>) -> Result<DragInfo, String> {
     let (files, skipped) = build_export(&state, view, &targets)?;
     if files.is_empty() {
         return Err("nothing to drag: locked archives can't be extracted".into());
     }
-    start_drag(&app, files, skipped)
+    start_drag(&window, files, skipped)
 }
 
 #[cfg(windows)]
-fn start_drag(app: &AppHandle, files: Vec<ExportFile>, skipped: u32) -> Result<DragInfo, String> {
+fn start_drag(window: &tauri::WebviewWindow, files: Vec<ExportFile>, skipped: u32) -> Result<DragInfo, String> {
     let n = files.iter().filter(|f| !f.is_dir).count();
     let prepared = drag::prepare(files)?;
     let info = DragInfo { files: n, skipped: skipped as usize + prepared.too_long };
-    app.run_on_main_thread(move || {
-        if let Err(e) = stl_drag::run_drag(prepared) {
-            eprintln!("drag failed: {e}");
-        }
-    })
-    .map_err(|e| e.to_string())?;
+    window
+        .run_on_main_thread(move || {
+            if let Err(e) = stl_drag::run_drag(prepared) {
+                eprintln!("drag failed: {e}");
+            }
+        })
+        .map_err(|e| e.to_string())?;
     Ok(info)
 }
 
-#[cfg(not(windows))]
-fn start_drag(_: &AppHandle, _: Vec<ExportFile>, _: u32) -> Result<DragInfo, String> {
-    Err("dragging files out needs Windows; use Extract to…".into())
+#[cfg(target_os = "macos")]
+fn start_drag(window: &tauri::WebviewWindow, files: Vec<ExportFile>, skipped: u32) -> Result<DragInfo, String> {
+    let n = files.iter().filter(|f| !f.is_dir).count();
+    let prepared = drag::prepare(files)?;
+    let info = DragInfo { files: n, skipped: skipped as usize + prepared.too_long };
+    // a raw pointer isn't Send; the view is only touched on the main thread
+    let view = window.ns_view().map_err(|e| e.to_string())? as usize;
+    window
+        .run_on_main_thread(move || {
+            if let Err(e) = stl_drag::run_drag(prepared, view as *mut std::ffi::c_void) {
+                eprintln!("drag failed: {e}");
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(info)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn start_drag(_: &tauri::WebviewWindow, _: Vec<ExportFile>, _: u32) -> Result<DragInfo, String> {
+    Err("dragging files out needs Windows or macOS; use Extract to…".into())
 }
 
 #[cfg(test)]
@@ -524,7 +542,7 @@ mod tests {
         assert!(state.try_begin_extract().is_some());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn drag_contents_extract_by_index() {
         use stl_drag::Contents;

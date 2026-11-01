@@ -10,6 +10,12 @@ mod windows;
 #[cfg(windows)]
 pub use windows::{Prepared, prepare, primary_button_down, run_drag};
 
+#[cfg(target_os = "macos")]
+mod macos;
+
+#[cfg(target_os = "macos")]
+pub use macos::{Prepared, prepare, run_drag};
+
 /// One folder or file of the drag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Descriptor {
