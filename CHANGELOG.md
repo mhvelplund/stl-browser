@@ -1,3 +1,14 @@
+## v1.4.0 (2026-11-01)
+
+### Feat
+
+- drag files out to Finder on macOS with file promises
+- drag promise writer that groups items and writes them without overwriting
+
+### Fix
+
+- keep a macOS drag that is still writing alive, and never clobber a file on drop
+
 ## v1.3.0 (2026-11-01)
 
 ### Feat
