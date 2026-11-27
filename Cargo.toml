@@ -4,7 +4,7 @@ members = ["crates/*", "app/src-tauri"]
 
 [workspace.package]
 edition = "2024"
-version = "1.4.2"
+version = "1.4.3"
 
 [profile.release]
 codegen-units = 1

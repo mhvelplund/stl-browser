@@ -1,3 +1,9 @@
+## v1.4.3 (2026-11-27)
+
+### Fix
+
+- **deps**: upgrade SvelteKit packages for security advisories
+
 ## v1.4.2 (2026-11-01)
 
 ### Fix
